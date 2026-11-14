@@ -1,0 +1,7 @@
+.env
+.DS_Store
+*.test
+*.out
+bin/
+tmp/
+/server
