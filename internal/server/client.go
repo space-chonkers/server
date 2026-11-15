@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -25,6 +26,7 @@ const (
 type Client struct {
 	id          string
 	hub         *Hub
+	matches     *match.Manager
 	conn        *websocket.Conn
 	cfg         Config
 	log         *slog.Logger
@@ -34,21 +36,23 @@ type Client struct {
 	closeCode   int
 	closeReason string
 	nickname    string // set once by the read pump; never empty after hello
+	matchID     string // set by the read pump while the player is in a match
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
+func NewClient(hub *Hub, matches *match.Manager, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		id:   id,
-		hub:  hub,
-		conn: conn,
-		cfg:  cfg,
-		log:  log,
-		send: make(chan []byte, 32),
-		done: make(chan struct{}),
+		id:      id,
+		hub:     hub,
+		matches: matches,
+		conn:    conn,
+		cfg:     cfg,
+		log:     log,
+		send:    make(chan []byte, 32),
+		done:    make(chan struct{}),
 	}, nil
 }
 
@@ -153,6 +157,7 @@ func (c *Client) enqueue(message []byte) {
 
 func (c *Client) readPump() {
 	defer func() {
+		c.leaveMatchOnDisconnect()
 		c.hub.Remove(c)
 		c.log.Info("client disconnected", "client", c.id, "clients", c.hub.Count())
 	}()
@@ -224,9 +229,104 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 			PlayerID: c.id,
 			Nickname: request.Nickname,
 		})
+	case *protocol.MatchJoinRequest:
+		c.handleMatchJoin(envelope.ID, request)
+	case *protocol.MatchLeaveRequest:
+		c.handleMatchLeave(envelope.ID)
+	case *protocol.MatchStartRequest:
+		c.handleMatchStart(envelope.ID)
 	default:
-		// A3/A4 replace this branch with match lifecycle handlers.
+		// A5 replaces this branch with movement and action handlers.
 		c.sendError(envelope.ID, protocol.CodeInternal, fmt.Sprintf("%s is not implemented yet", request.RequestType()))
+	}
+}
+
+func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) {
+	var joined *match.Match
+	var err error
+	switch {
+	case request.Create != nil && *request.Create:
+		joined, err = c.matches.Create(c.id, c.nickname, c)
+	case request.MatchID != nil:
+		joined, err = c.matches.Join(*request.MatchID, c.id, c.nickname, c)
+	default:
+		joined, err = c.matches.JoinAny(c.id, c.nickname, c)
+	}
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+
+	c.matchID = joined.ID()
+	state := joined.State(time.Now().UnixMilli())
+	c.sendResponse(id, protocol.TypeMatchJoin, protocol.MatchJoinResult{
+		MatchID: joined.ID(),
+		State:   state,
+	})
+	if err := joined.BroadcastExcept(c.id, protocol.TypeMatchState, state); err != nil {
+		c.log.Error("broadcast join state", "client", c.id, "match", joined.ID(), "error", err)
+	}
+}
+
+func (c *Client) handleMatchLeave(id string) {
+	if c.matchID == "" {
+		c.sendError(id, protocol.CodeNotInMatch, "player is not in a match")
+		return
+	}
+
+	matchID := c.matchID
+	if err := c.matches.Leave(matchID, c.id); err != nil {
+		c.matchID = ""
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.matchID = ""
+	c.sendResponse(id, protocol.TypeMatchLeave, protocol.OKPayload{})
+	c.broadcastMatchState(matchID)
+}
+
+func (c *Client) handleMatchStart(id string) {
+	if c.matchID == "" {
+		c.sendError(id, protocol.CodeNotInMatch, "player is not in a match")
+		return
+	}
+
+	started, err := c.matches.Start(c.matchID, c.id)
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
+	if err := started.Match.Broadcast(protocol.TypeMatchState, started.Countdown); err != nil {
+		c.log.Error("broadcast countdown state", "client", c.id, "match", c.matchID, "error", err)
+	}
+	if err := started.Match.Broadcast(protocol.TypeMatchState, started.Playing); err != nil {
+		c.log.Error("broadcast playing state", "client", c.id, "match", c.matchID, "error", err)
+	}
+}
+
+// leaveMatchOnDisconnect removes a disconnected player and lets the remaining
+// members see the new host, if any.
+func (c *Client) leaveMatchOnDisconnect() {
+	if c.matchID == "" {
+		return
+	}
+	matchID := c.matchID
+	c.matchID = ""
+	if err := c.matches.Leave(matchID, c.id); err != nil {
+		return
+	}
+	c.broadcastMatchState(matchID)
+}
+
+func (c *Client) broadcastMatchState(matchID string) {
+	joined, ok := c.matches.Get(matchID)
+	if !ok {
+		return
+	}
+	state := joined.State(time.Now().UnixMilli())
+	if err := joined.Broadcast(protocol.TypeMatchState, state); err != nil {
+		c.log.Error("broadcast match state", "client", c.id, "match", matchID, "error", err)
 	}
 }
 

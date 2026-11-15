@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/match"
 )
 
@@ -31,6 +32,8 @@ func New(cfg Config, log *slog.Logger) *Server {
 		matches: match.NewManager(match.Options{
 			MaxMatches:         cfg.MaxMatches,
 			MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
+			Grid:               cfg.Rules.Grid,
+			GameConfig:         game.DefaultConfig(),
 		}),
 	}
 	server.upgrader = websocket.Upgrader{
@@ -94,7 +97,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(s.hub, conn, s.cfg, s.log)
+	client, err := NewClient(s.hub, s.matches, conn, s.cfg, s.log)
 	if err != nil {
 		s.log.Error("create client", "error", err)
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "internal error"), time.Now().Add(writeWait))

@@ -5,6 +5,7 @@ package match
 import (
 	"sync"
 
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -21,12 +22,18 @@ type Member struct {
 	Sink     Sink
 }
 
-// Match is one lobby. mu guards members and hostSlot.
+// Match is one lobby or running match. mu guards membership and the start
+// snapshot.
 type Match struct {
-	mu       sync.RWMutex
-	id       string
-	members  []*Member // index == slot; nil is free
-	hostSlot int       // -1 when the match is empty
+	mu          sync.RWMutex
+	id          string
+	members     []*Member // index == slot; nil is free
+	hostSlot    int       // -1 when the match is empty
+	phase       protocol.Phase
+	grid        protocol.GridSize // published while the match is a lobby
+	teamSize    int               // frozen when the match starts
+	world       game.World
+	startedAtMs int64
 }
 
 func newMatch(id string, maxPlayers int) *Match {
@@ -34,6 +41,7 @@ func newMatch(id string, maxPlayers int) *Match {
 		id:       id,
 		members:  make([]*Member, maxPlayers),
 		hostSlot: -1,
+		phase:    protocol.PhaseLobby,
 	}
 }
 
@@ -57,6 +65,9 @@ func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 		if member.PlayerID == playerID {
 			return 0, protocol.Errorf(protocol.CodeAlreadyInMatch, "player %s is already in match %s", playerID, m.id)
 		}
+	}
+	if m.phase != protocol.PhaseLobby {
+		return 0, protocol.Errorf(protocol.CodeMatchInProgress, "match %s has already started", m.id)
 	}
 	if free < 0 {
 		return 0, protocol.Errorf(protocol.CodeMatchFull, "match %s is full", m.id)
@@ -106,16 +117,27 @@ func (m *Match) has(playerID string) bool {
 	return false
 }
 
-// available reports whether another player fits.
-func (m *Match) available() bool {
+// joinable reports whether the match is still in its lobby and has a free
+// slot.
+func (m *Match) joinable() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.phase != protocol.PhaseLobby {
+		return false
+	}
 	for _, member := range m.members {
 		if member == nil {
 			return true
 		}
 	}
 	return false
+}
+
+// Phase returns the current lifecycle phase.
+func (m *Match) Phase() protocol.Phase {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.phase
 }
 
 // empty reports whether the match has no members. The caller holds mu.
@@ -156,11 +178,20 @@ func (m *Match) HostID() string {
 // sends outside the lock so a sink cannot block membership changes. The error
 // covers event construction only; delivery is best-effort.
 func (m *Match) Broadcast(typ protocol.MessageType, payload any) error {
+	return m.BroadcastExcept("", typ, payload)
+}
+
+// BroadcastExcept delivers one event to every member except exceptPlayerID. An
+// empty id broadcasts to everyone.
+func (m *Match) BroadcastExcept(exceptPlayerID string, typ protocol.MessageType, payload any) error {
 	event, err := protocol.NewEvent(typ, payload)
 	if err != nil {
 		return err
 	}
 	for _, member := range m.Members() {
+		if member.PlayerID == exceptPlayerID {
+			continue
+		}
 		member.Sink.Send(event)
 	}
 	return nil

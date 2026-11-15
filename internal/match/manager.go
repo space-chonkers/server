@@ -2,8 +2,11 @@ package match
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"sync"
+	"time"
 
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -15,11 +18,22 @@ const (
 	idAttempts = 8
 )
 
-// Options are the manager limits, normally from the server configuration. Both
-// limits must be non-negative.
+// WorldGenerator creates the immutable starting world for a match.
+type WorldGenerator func(seed int64, teamSize int, config game.Config) (game.World, error)
+
+// SeedSource returns the seed for one world. It must be safe for concurrent use.
+type SeedSource func() (int64, error)
+
+// Options are the manager limits and match-start inputs. Both limits must be
+// non-negative. Grid is published in lobby state; GameConfig, GenerateWorld,
+// and NewSeed are used when a host starts a match.
 type Options struct {
 	MaxMatches         int
 	MaxPlayersPerMatch int
+	Grid               protocol.GridSize
+	GameConfig         game.Config
+	GenerateWorld      WorldGenerator
+	NewSeed            SeedSource
 }
 
 // Manager owns the registry and every transition that changes it. Lock order is
@@ -33,6 +47,12 @@ type Manager struct {
 
 // NewManager returns an empty registry with the given limits.
 func NewManager(opts Options) *Manager {
+	if opts.GenerateWorld == nil {
+		opts.GenerateWorld = game.GenerateWorld
+	}
+	if opts.NewSeed == nil {
+		opts.NewSeed = randomSeed
+	}
 	return &Manager{
 		matches: make(map[string]*Match),
 		opts:    opts,
@@ -78,7 +98,7 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 		return nil, err
 	}
 	for _, match := range m.matches {
-		if !match.available() {
+		if !match.joinable() {
 			continue
 		}
 		if _, err := match.add(playerID, name, sink); err != nil {
@@ -87,6 +107,25 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 		return match, nil
 	}
 	return m.createLobby(playerID, name, sink)
+}
+
+// Start freezes the lobby, generates its world, and returns the countdown and
+// playing snapshots to publish. Only the host may start, and only once.
+func (m *Manager) Start(matchID, playerID string) (*Started, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	match, ok := m.matches[matchID]
+	if !ok {
+		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
+	}
+	countdown, playing, err := match.start(
+		playerID, m.opts.NewSeed, m.opts.GenerateWorld, m.opts.GameConfig, time.Now().UnixMilli(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Started{Match: match, Countdown: countdown, Playing: playing}, nil
 }
 
 // Leave removes a player and drops the match when it becomes empty.
@@ -167,6 +206,7 @@ func (m *Manager) createLobby(playerID, name string, sink Sink) (*Match, error) 
 		return nil, err
 	}
 	match := newMatch(id, m.opts.MaxPlayersPerMatch)
+	match.grid = m.opts.Grid
 	if _, err := match.add(playerID, name, sink); err != nil {
 		return nil, err
 	}
@@ -200,4 +240,13 @@ func (m *Manager) newID() (string, error) {
 		}
 	}
 	return "", protocol.Errorf(protocol.CodeInternal, "generate unique match id")
+}
+
+// randomSeed returns a non-deterministic seed for one world.
+func randomSeed() (int64, error) {
+	var buffer [8]byte
+	if _, err := rand.Read(buffer[:]); err != nil {
+		return 0, protocol.Errorf(protocol.CodeInternal, "generate world seed: %v", err)
+	}
+	return int64(binary.LittleEndian.Uint64(buffer[:])), nil
 }
