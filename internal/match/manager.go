@@ -120,15 +120,16 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 	return m.createLobby(playerID, name, sink)
 }
 
-// Start freezes the lobby and generates its world. Only the host may start,
-// and only once. The caller publishes the start states with Match.PublishStart.
-func (m *Manager) Start(matchID, playerID string) (*Match, error) {
+// Start freezes the player's lobby and generates its world. Only the host may
+// start, and only once. The caller publishes the start states with
+// Match.PublishStart.
+func (m *Manager) Start(playerID string) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	match, ok := m.matches[matchID]
-	if !ok {
-		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
+	match := m.matchOf(playerID)
+	if match == nil {
+		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
 	if err := match.start(playerID, m.newWorld); err != nil {
 		return nil, err
@@ -136,22 +137,22 @@ func (m *Manager) Start(matchID, playerID string) (*Match, error) {
 	return match, nil
 }
 
-// Leave removes a player and returns the surviving match, or nil when it
+// Leave removes the player and returns the surviving match, or nil when it
 // became empty and was dropped.
-func (m *Manager) Leave(matchID, playerID string) (*Match, error) {
+func (m *Manager) Leave(playerID string) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	match, ok := m.matches[matchID]
-	if !ok {
-		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
+	match := m.matchOf(playerID)
+	if match == nil {
+		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
 	removed, empty := match.remove(playerID)
 	if !removed {
-		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, matchID)
+		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, match.id)
 	}
 	if empty {
-		delete(m.matches, matchID)
+		delete(m.matches, match.id)
 		return nil, nil
 	}
 	return match, nil

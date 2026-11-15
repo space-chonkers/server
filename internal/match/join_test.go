@@ -79,14 +79,14 @@ func newTestManager(t *testing.T, generate WorldGenerator) *Manager {
 	return NewManager(opts)
 }
 
-func mustStart(t *testing.T, manager *Manager, matchID, playerID string) *Match {
+func mustStart(t *testing.T, manager *Manager, playerID string) *Match {
 	t.Helper()
-	started, err := manager.Start(matchID, playerID)
+	started, err := manager.Start(playerID)
 	if err != nil {
-		t.Fatalf("start %s by %s: %v", matchID, playerID, err)
+		t.Fatalf("start by %s: %v", playerID, err)
 	}
 	if err := started.PublishStart(1234); err != nil {
-		t.Fatalf("publish start for %s: %v", matchID, err)
+		t.Fatalf("publish start by %s: %v", playerID, err)
 	}
 	return started
 }
@@ -146,7 +146,7 @@ func TestLobbyStateTracksMembersAndHost(t *testing.T) {
 		}
 	}
 
-	if _, err := manager.Leave(created.ID(), "p_1"); err != nil {
+	if _, err := manager.Leave("p_1"); err != nil {
 		t.Fatalf("leave host: %v", err)
 	}
 	state = created.State(1235)
@@ -168,7 +168,7 @@ func TestStartReturnsCountdownThenPlayingState(t *testing.T) {
 	created := mustCreate(t, manager, "p_1", hostSink)
 	mustJoin(t, manager, created.ID(), "p_2", guestSink)
 
-	started, err := manager.Start(created.ID(), "p_1")
+	started, err := manager.Start("p_1")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -265,17 +265,14 @@ func TestStartRequiresHostAndLobby(t *testing.T) {
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
 	mustJoin(t, manager, created.ID(), "p_2", &fakeSink{})
 
-	if _, err := manager.Start("NOPE", "p_1"); protocol.CodeOf(err) != protocol.CodeMatchNotFound {
-		t.Fatalf("unknown match: %v", err)
-	}
-	if _, err := manager.Start(created.ID(), "p_3"); protocol.CodeOf(err) != protocol.CodeNotInMatch {
+	if _, err := manager.Start("p_3"); protocol.CodeOf(err) != protocol.CodeNotInMatch {
 		t.Fatalf("outsider: %v", err)
 	}
-	if _, err := manager.Start(created.ID(), "p_2"); protocol.CodeOf(err) != protocol.CodeNotHost {
+	if _, err := manager.Start("p_2"); protocol.CodeOf(err) != protocol.CodeNotHost {
 		t.Fatalf("non-host: %v", err)
 	}
-	mustStart(t, manager, created.ID(), "p_1")
-	if _, err := manager.Start(created.ID(), "p_1"); protocol.CodeOf(err) != protocol.CodeWrongPhase {
+	mustStart(t, manager, "p_1")
+	if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeWrongPhase {
 		t.Fatalf("second start: %v", err)
 	}
 }
@@ -290,13 +287,13 @@ func TestStartFailureLeavesLobby(t *testing.T) {
 	})
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
 
-	if _, err := manager.Start(created.ID(), "p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
+	if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
 		t.Fatalf("expected internal, got %v", err)
 	}
 	if state := created.State(1); state.Phase != protocol.PhaseLobby {
 		t.Fatalf("state after failure = %+v", state)
 	}
-	mustStart(t, manager, created.ID(), "p_1")
+	mustStart(t, manager, "p_1")
 	if calls.Load() != 2 {
 		t.Fatalf("generator calls = %d, want 2", calls.Load())
 	}
@@ -342,7 +339,7 @@ func TestStartRejectsInvalidWorld(t *testing.T) {
 			created := mustCreate(t, manager, "p_1", &fakeSink{})
 			mustJoin(t, manager, created.ID(), "p_2", &fakeSink{})
 
-			if _, err := manager.Start(created.ID(), "p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
+			if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
 				t.Fatalf("expected internal, got %v", err)
 			}
 			if state := created.State(1); state.Phase != protocol.PhaseLobby {
@@ -359,11 +356,11 @@ func TestStartPublicationUsesCurrentMembership(t *testing.T) {
 	created := mustCreate(t, manager, "p_1", hostSink)
 	mustJoin(t, manager, created.ID(), "p_2", guestSink)
 
-	started, err := manager.Start(created.ID(), "p_1")
+	started, err := manager.Start("p_1")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	surviving, err := manager.Leave(created.ID(), "p_2")
+	surviving, err := manager.Leave("p_2")
 	if err != nil {
 		t.Fatalf("leave: %v", err)
 	}
@@ -395,7 +392,7 @@ func TestStartPublicationUsesCurrentMembership(t *testing.T) {
 func TestJoinStartedMatchIsRejected(t *testing.T) {
 	manager := newTestManager(t, nil)
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
-	mustStart(t, manager, created.ID(), "p_1")
+	mustStart(t, manager, "p_1")
 
 	if _, err := manager.Join(created.ID(), "p_2", "p_2", &fakeSink{}); protocol.CodeOf(err) != protocol.CodeMatchInProgress {
 		t.Fatalf("join started match: %v", err)
@@ -405,7 +402,7 @@ func TestJoinStartedMatchIsRejected(t *testing.T) {
 func TestQuickJoinSkipsStartedMatches(t *testing.T) {
 	manager := newTestManager(t, nil)
 	started := mustCreate(t, manager, "p_1", &fakeSink{})
-	mustStart(t, manager, started.ID(), "p_1")
+	mustStart(t, manager, "p_1")
 
 	joined, err := manager.JoinAny("p_2", "p_2", &fakeSink{})
 	if err != nil {
@@ -464,9 +461,9 @@ func TestLeaveWhilePlayingKeepsFrozenTeamSize(t *testing.T) {
 	manager := newTestManager(t, nil)
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
 	mustJoin(t, manager, created.ID(), "p_2", &fakeSink{})
-	mustStart(t, manager, created.ID(), "p_1")
+	mustStart(t, manager, "p_1")
 
-	if _, err := manager.Leave(created.ID(), "p_2"); err != nil {
+	if _, err := manager.Leave("p_2"); err != nil {
 		t.Fatalf("leave: %v", err)
 	}
 	state := created.State(1)
@@ -484,7 +481,7 @@ func TestConcurrentStartOnlyOneWins(t *testing.T) {
 		generations.Add(1)
 		return testWorld(teamSize), nil
 	})
-	created := mustCreate(t, manager, "p_1", &fakeSink{})
+	mustCreate(t, manager, "p_1", &fakeSink{})
 
 	var wait sync.WaitGroup
 	results := make(chan error, 2)
@@ -492,7 +489,7 @@ func TestConcurrentStartOnlyOneWins(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, err := manager.Start(created.ID(), "p_1")
+			_, err := manager.Start("p_1")
 			results <- err
 		}()
 	}
