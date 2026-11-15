@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:space-chonkers:mars-terrain-data:v1",
+  "title": "MarsTerrainDataV1",
+  "description": "Proposed v1 payload for one Layer -1 map built from real Mars elevation. Mirrors parseMarsTerrainData in src/terrain-kit/marsTerrainContract.ts. Two cross-field rules cannot be expressed in JSON Schema and must be checked in code: elevation.columns == grid.columns + 1 and elevation.rows == grid.rows + 1; len(elevation.samplesMeters) == elevation.columns * elevation.rows. See docs/mars_terrain_contract.md sections 7 and 8.",
+  "type": "object",
+  "required": ["version", "center", "grid", "elevation", "source", "seed"],
+  "properties": {
+    "version": { "const": 1 },
+    "center": {
+      "type": "object",
+      "required": ["latitude", "longitudeEast"],
+      "properties": {
+        "latitude": {
+          "description": "Planetocentric latitude of the map centre, degrees, positive north. Polar maps are not supported in v1.",
+          "type": "number",
+          "minimum": -85,
+          "maximum": 85
+        },
+        "longitudeEast": {
+          "description": "East-positive longitude of the map centre, degrees.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "required": ["columns", "rows", "cellSizeMeters"],
+      "properties": {
+        "columns": { "description": "Logical cells west to east.", "type": "integer", "minimum": 1 },
+        "rows": { "description": "Logical cells north to south.", "type": "integer", "minimum": 1 },
+        "cellSizeMeters": { "description": "Ground size of one cell, metres.", "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "elevation": {
+      "type": "object",
+      "required": ["sampling", "columns", "rows", "samplesMeters", "datum"],
+      "properties": {
+        "sampling": { "const": "cell-corners" },
+        "columns": { "description": "Must equal grid.columns + 1 (checked in code).", "type": "integer", "minimum": 2 },
+        "rows": { "description": "Must equal grid.rows + 1 (checked in code).", "type": "integer", "minimum": 2 },
+        "samplesMeters": {
+          "description": "Metres above datum, row-major from the north-west corner. Length must equal columns * rows (checked in code). NoData (null) is not allowed in v1.",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "datum": {
+          "description": "Identifier of the vertical reference. Value still to be agreed (open decision 1).",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["datasetId", "provider", "resolutionMeters"],
+      "properties": {
+        "datasetId": { "type": "string", "pattern": "\\S" },
+        "provider": { "type": "string", "pattern": "\\S" },
+        "resolutionMeters": {
+          "description": "Ground resolution of the source dataset, metres (not the grid cell size).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "productId": { "description": "Optional. Omit the field rather than sending null.", "type": "string" }
+      }
+    },
+    "seed": {
+      "description": "Owned by the backend. Unsigned 32-bit integer.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    }
+  }
+}
