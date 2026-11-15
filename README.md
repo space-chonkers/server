@@ -51,9 +51,8 @@ center; players spawn on the base edge and move only inside the base.
 cmd/server/main.go          process startup and shutdown
 internal/server/config.go   environment configuration
 internal/server/server.go   HTTP routes and WebSocket upgrade
-internal/server/hub.go      connected-client registry and broadcast
-internal/server/client.go   read/write pumps and request handlers
-internal/server/protocol.go JSON envelope
+internal/server/hub.go      connected-client registry
+internal/server/client.go   read/write pumps, welcome/hello handshake
 Dockerfile                  multi-stage build (Go builder, Alpine runtime)
 compose.yaml                local server container
 ```
@@ -75,47 +74,49 @@ repo yet; connect a client to the WebSocket URL when ready.
 
 ## WebSocket protocol
 
-Every frame is a JSON envelope. Requests carry an `id`; responses echo it so the
-client can correlate them. Server-initiated events omit `id`.
+Every frame is a JSON text envelope from the v1 contract in
+[docs/PROTOCOL.md](docs/PROTOCOL.md). Requests carry an `id`; responses echo it so
+the client can correlate them. Server-initiated events omit `id`.
 
 ```json
-{ "id": "req-1", "type": "ping" }
+{ "id": "req-1", "type": "ping", "payload": { "clientTimeMs": 1763222400000 } }
 ```
 
 ```json
-{ "id": "req-1", "type": "pong", "payload": { "time": "2026-11-14T18:00:00Z" } }
+{ "id": "req-1", "type": "pong", "payload": { "serverTimeMs": 1763222400012, "tick": 0 } }
 ```
 
-The table below describes the baseline scaffold. The game contract that replaces
-these debug types in M1 is [docs/PROTOCOL.md](docs/PROTOCOL.md).
+On connect the server sends `welcome` first, with the protocol version, server
+time, limits, and gameplay rules. The client then identifies once:
 
-Built-in request types:
+```json
+{ "id": "req-2", "type": "player.hello", "payload": { "protocolVersion": 1, "nickname": "ana" } }
+```
 
-| Type        | Response  | Behavior                                      |
-| ----------- | --------- | --------------------------------------------- |
-| `ping`      | `pong`    | Liveness round trip.                          |
-| `echo`      | `echo`    | Returns the request payload unchanged.        |
-| `broadcast` | `ack`     | Sends the payload to every other client.      |
+| Type | Status |
+| --- | --- |
+| `ping` | Any phase; answered with `pong`. |
+| `player.hello` | Once per connection; answered with `player.hello`. |
+| `match.join`, `match.leave`, `match.start`, `match.input`, `stash.collect`, `base.build`, `phenomenon.fix` | Validated by the contract; match handlers land in A3/A4. |
 
-Server event types:
-
-| Type        | When                                      |
-| ----------- | ----------------------------------------- |
-| `welcome`   | On connect, with `clientId` and `clients`.|
-| `broadcast` | When another client sends `broadcast`.    |
-| `error`     | Invalid JSON or unknown request type.     |
+Unknown types return `error: "unsupported_type"` and keep the socket open.
+Errors use a stable `error` code plus a human-readable `payload.message`.
+Binary frames close with `1003`; a protocol version mismatch closes with `1008`.
 
 Minimal client wiring:
 
 ```ts
 const socket = new WebSocket('ws://localhost:8080/ws')
 
-socket.addEventListener('open', () => {
-  socket.send(JSON.stringify({ id: crypto.randomUUID(), type: 'ping' }))
-})
-
 socket.addEventListener('message', (event) => {
-  console.log(JSON.parse(event.data))
+  const message = JSON.parse(event.data)
+  if (message.type === 'welcome') {
+    socket.send(JSON.stringify({
+      id: crypto.randomUUID(),
+      type: 'player.hello',
+      payload: { protocolVersion: message.payload.protocolVersion, nickname: 'ana' },
+    }))
+  }
 })
 ```
 
