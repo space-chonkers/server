@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"reflect"
 	"testing"
@@ -18,6 +19,34 @@ func TestExportGeneratedWorld(t *testing.T) {
 		t.Fatalf("marshal generated world: %v", err)
 	}
 	t.Logf("Generated world payload (seed=%d):\n%s", seed, payload)
+}
+
+func TestExportFallbackMap(t *testing.T) {
+	const (
+		count       = 10
+		minDistance = 5.0
+	)
+	constructions, goals, spawns, err := hardcodedFallbackMap(count, minDistance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.MarshalIndent(struct {
+		Grid            GridSize       `json:"grid"`
+		Constructions   []Construction `json:"constructions"`
+		Investigation   []Cell         `json:"investigation"`
+		Spawns          []PlayerSpawn  `json:"spawns"`
+		MinimumDistance float64        `json:"minimumDistance"`
+	}{
+		Grid:            GridSize{Width: worldWidth, Height: worldHeight},
+		Constructions:   constructions,
+		Investigation:   goals,
+		Spawns:          spawns,
+		MinimumDistance: minDistance,
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal fallback map: %v", err)
+	}
+	t.Logf("Deterministic fallback map:\n%s", payload)
 }
 
 func TestGenerateWorldStructureAndBounds(t *testing.T) {
@@ -154,6 +183,82 @@ func TestGenerateWorldDeterministic(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("same seed and inputs produced different worlds")
+	}
+}
+
+func TestHardcodedFallbackMapIsValid(t *testing.T) {
+	const (
+		count       = 10
+		minDistance = 5.0
+	)
+	constructions, goals, spawns, err := hardcodedFallbackMap(count, minDistance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(constructions) != 9 || len(goals) != count || len(spawns) != 4 {
+		t.Fatalf("unexpected fallback map sizes: constructions=%d goals=%d spawns=%d",
+			len(constructions), len(goals), len(spawns))
+	}
+	baseCells := make(map[Cell]struct{}, len(constructions))
+	for _, construction := range constructions {
+		baseCells[Cell{CellX: construction.CellX, CellY: construction.CellY}] = struct{}{}
+	}
+	for i, goal := range goals {
+		if goal.CellX < 0 || goal.CellX >= worldWidth ||
+			goal.CellY < 0 || goal.CellY >= worldHeight {
+			t.Fatalf("fallback objective out of bounds: %+v", goal)
+		}
+		if _, overlapsBase := baseCells[goal]; overlapsBase {
+			t.Fatalf("fallback objective overlaps base: %+v", goal)
+		}
+		for _, other := range goals[:i] {
+			if !separatedFromAll(goal, []Cell{other}, minDistance) {
+				t.Fatalf("fallback objectives are too close: %+v and %+v", goal, other)
+			}
+		}
+	}
+}
+
+func TestGenerateMapFallsBackWhenRandomAttemptsExhausted(t *testing.T) {
+	const minDistance = 5
+	constructions, goals, _, err := generateMapWithAttempts(
+		newRandomSource(20261115), len(fallbackObjectives), minDistance, 0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(goals) != len(fallbackObjectives) {
+		t.Fatalf("got %d objectives, want %d", len(goals), len(fallbackObjectives))
+	}
+	if !reflect.DeepEqual(goals, fallbackObjectives[:]) {
+		t.Fatalf("expected hardcoded fallback objectives, got %+v", goals)
+	}
+	for _, construction := range constructions {
+		if construction.CellX < fallbackBase.CellX || construction.CellX >= fallbackBase.CellX+baseSize ||
+			construction.CellY < fallbackBase.CellY || construction.CellY >= fallbackBase.CellY+baseSize {
+			t.Fatalf("expected hardcoded fallback base at %+v, got construction %+v", fallbackBase, construction)
+		}
+	}
+}
+
+func TestHardcodedFallbackMapRejectsUnsupportedConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		count       int
+		minDistance float64
+	}{
+		{name: "too many objectives", count: len(fallbackObjectives) + 1, minDistance: 5},
+		{name: "spacing too wide", count: 2, minDistance: 100},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, _, err := hardcodedFallbackMap(test.count, test.minDistance)
+			if err == nil {
+				t.Fatal("expected unsupported fallback configuration to fail")
+			}
+			if !errors.Is(err, errNoInvestigationLayout) {
+				t.Fatalf("expected fallback layout error, got %v", err)
+			}
+		})
 	}
 }
 
