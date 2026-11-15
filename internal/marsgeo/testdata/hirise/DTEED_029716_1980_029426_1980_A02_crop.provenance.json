@@ -1,0 +1,38 @@
+{
+ "productId": "DTEED_029716_1980_029426_1980_A02",
+ "productVersionId": "2",
+ "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+ "sourceUrl": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG",
+ "sourceBytes": 115674048,
+ "sourceSha256": "3e40595b71434951188f683e9818e5ee2e818b885d7908d5f9b68b659dc02d8a",
+ "sourceLabelSha256": "3be5a26349204dce4953f3b4f47784582c147b2eb5398ab370b564809235e8a4",
+ "cropWindow": [
+  1552,
+  3926,
+  400,
+  400
+ ],
+ "cropFile": "DTEED_029716_1980_029426_1980_A02_crop.IMG",
+ "cropBytes": 644800,
+ "cropSha256": "cc34710beef1652e9765933870e56a991e063695babdb85bdaca1a46ce65b82c",
+ "softwareName": "SOCET Set 5.6.0",
+ "datumNote": "Pixel values in this file represent elevations in meters above the martian equipotential surface (Mars 2000 Datum) defined by Smith, et al. (2001). Conversion from pixel units to geophysical units is given by the keyvalues for SCALING_FACTOR and OFFSET. This DTM was produced using ISIS and SOCET Set (copyright BAE Systems) software as described in Kirk et al. (2008).",
+ "credit": "NASA/JPL/University of Arizona",
+ "usagePolicy": "https://uahirise.org/media/usage.php",
+ "generated": "2026-11-15",
+ "commandLine": [
+  "marsgeo-prep",
+  "-url",
+  "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG",
+  "-crop",
+  "1552,3926,400,400",
+  "-source-sha256",
+  "3e40595b71434951188f683e9818e5ee2e818b885d7908d5f9b68b659dc02d8a",
+  "-out",
+  "internal/marsgeo/testdata/hirise",
+  "-registry",
+  "internal/marsgeo/testdata/hirise/registry.json",
+  "-registry-version",
+  "test-crop-2026-11-15.1"
+ ]
+}

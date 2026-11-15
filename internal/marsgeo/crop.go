@@ -67,8 +67,12 @@ func CropProduct(srcLabel []byte, src *Product, win *Window, comment string) ([]
 		}
 		text = re.ReplaceAll(text, []byte("${1}"+value))
 	}
-	header := []byte("/* " + comment + " */\r\n")
-	body := append(header, text...)
+	// The comment goes right after PDS_VERSION_ID, which must stay the first statement.
+	first := bytes.Index(text, []byte("\n"))
+	if first < 0 || !bytes.HasPrefix(bytes.TrimSpace(text[:first]), []byte("PDS_VERSION_ID")) {
+		return nil, fmt.Errorf("source label does not start with PDS_VERSION_ID")
+	}
+	body := append(append(append([]byte{}, text[:first+1]...), "/* "+comment+" */\r\n"...), text[first+1:]...)
 
 	// Lay out: label padded to whole records, then the image. FILE_RECORDS and
 	// ^IMAGE depend on the label length, so iterate until stable.

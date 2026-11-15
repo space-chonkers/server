@@ -171,6 +171,9 @@ func runFull(cfg config) error {
 	if err != nil {
 		return err
 	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}

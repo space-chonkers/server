@@ -38,8 +38,8 @@ func TestCropProduct(t *testing.T) {
 	if l.ValidMinimum != -8000.5 || l.ValidMaximum != 999999.25 {
 		t.Fatalf("VALID range %v..%v, want -8000.5..999999.25", l.ValidMinimum, l.ValidMaximum)
 	}
-	if !strings.Contains(string(out[:l.ImageOffset]), "/* test crop */") {
-		t.Fatal("provenance comment missing")
+	if !strings.HasPrefix(string(out), "PDS_VERSION_ID") || !strings.Contains(string(out[:l.ImageOffset]), "/* test crop */") {
+		t.Fatal("crop must start with PDS_VERSION_ID and carry the provenance comment")
 	}
 	// Every crop pixel has the same bits and the same geographic centre as its source pixel.
 	cw, _ := crop.ReadWindow(0, 0, 25, 20)

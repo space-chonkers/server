@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -43,7 +44,7 @@ func main() {
 		os.Exit(2)
 	}
 	cfg.client = &http.Client{Timeout: 30 * time.Minute}
-	cfg.commandLine = os.Args
+	cfg.commandLine = append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...)
 	if err := run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "marsgeo-prep:", err)
 		os.Exit(1)

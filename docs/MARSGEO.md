@@ -132,7 +132,26 @@ observed values.
 
 ## 6. Coverage and seed selection
 
-*(Completed in P6–P7.)*
+**Footprint rectangle.** A map's 2,601 × 25 sub-samples touch exactly one axis-aligned pixel rectangle
+(`FootprintRect`). Both mappings are separable: pixel x depends only on local east, and y only on local north.
+Consecutive sub-samples are `cellSize/k` metres apart. For A02 that is about 1.006 px: the client sphere at the map
+latitude and the product projection at its standard parallel scale differently, so it is slightly over 1. Because the
+bilinear stencil is 2 px wide, the touched columns stay contiguous as long as the spacing is under 2 px.
+`FootprintRect` checks that bound, and a brute-force test confirms the rectangle is exact.
+
+**Valid-centre lattice.** The prep tool tests every pixel centre on a 25 px (≈ 50 m) lattice. A centre is kept only if
+its |latitude| ≤ 85° and its whole footprint rectangle lies inside the raster with zero invalid pixels; a 2-D prefix
+sum makes each check O(1). Kept centres are stored as run-length rows in the registry. A02 has **28,546** valid
+centres.
+
+**Runtime re-check.** `Build` reads exactly the footprint rectangle and checks every pixel again with the same
+predicate before resampling. A registry that disagrees with the data gives `ErrNoCoverage`, never a payload.
+
+**Selection.** SplitMix64 is seeded with `uint64(seed)`. It uses the same algorithm and constants as
+`internal/game/random.go`, copied so marsgeo stays independent, and draws by rejection sampling. It picks the entry
+`intn(len(entries))`, then the centre `intn(validCount)`. The location is a function of the registry content and the
+seed, so a registry change can remap seeds; `registryVersion` records that. The payload's `center` is that lattice
+pixel's centre under the verified convention.
 
 ## 7. No fallback
 
@@ -147,11 +166,71 @@ There is no procedural, synthetic or gap-filled code path. Every failure is a ty
 
 ## 8. Data and preparation
 
-*(Completed in P8–P9.)*
+**Product.** `DTEED_029716_1980_029426_1980_A02` (HiRISE DTM, version 2; source area for a channel network near
+Gigas Sulci). It is 3,504 × 8,252 px at 2.0195488956581 m, 115,674,048 bytes, with SHA-256 `3e40595b…5dc02d8a`.
+Source:
+`https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG`.
+
+**Production data** stays outside Git. The server will read `$MARSGEO_DATA_DIR/<file>`, where `<file>` is named in
+the embedded `internal/marsgeo/registry.json`:
+
+```sh
+mkdir -p "$MARSGEO_DATA_DIR"
+docker run --rm -v "$PWD":/src -v "$MARSGEO_DATA_DIR":/data -w /src golang:1.25-alpine \
+  go run ./cmd/marsgeo-prep \
+    -url https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG \
+    -out /data -registry internal/marsgeo/registry.json -registry-version 2026-11-15.1
+```
+
+This downloads the file while streaming its SHA-256, verifies the label, scans the lattice and rewrites the
+registry. Running it again on the same product reproduces the committed registry. `Registry.Open` re-checks the
+size, SHA-256 and label of every file, and reports any mismatch as `ErrDataUnavailable`.
+
+**Committed test crop** (`internal/marsgeo/testdata/hirise/`):
+
+| File | What it is |
+|---|---|
+| `DTEED_029716_1980_029426_1980_A02.LBL` | The A02 label record (first 14,016 bytes), fetched with one Range read. |
+| `DTEED_029716_1980_029426_1980_A02_crop.IMG` | A 400 × 400 px window at source pixel (1552, 3926), about 808 m square, 644,800 bytes, fully valid. Re-labelled PDS3; the label carries a provenance comment. |
+| `…_crop.provenance.json` | Source URL, version, size and SHA-256; label SHA-256; crop window, size and SHA-256; credit; usage policy; the exact command line. |
+| `registry.json` | A one-entry registry for the crop (25 valid centres). |
+| `gdal_reference.json`, `gdal_reference.sh` | The independent GDAL reference (section 5). |
+| `golden_seed_2026.json` | The pinned payload for seed 2026 built from the crop. |
+
+The crop was made with `marsgeo-prep -crop 1552,3926,400,400 -source-sha256 <full-file sha> …`, which fetches only the
+label and the window's lines. GDAL opens the crop with a geotransform equal to the source's shifted by the window
+origin (to within 3e-13 m), and reports 100% valid pixels.
+
+**Real-data verification.**
+
+- Always runs (committed crop): provenance and checksums; every crop pixel valid; the 13 GDAL reference points that
+  fall inside the crop match in pixel and float32 bits; `Build` for 4 seeds gives schema-valid payloads with every
+  sample inside the crop's VALID range; 6 corners are recomputed independently from raw pixels; the golden payload
+  (values within 1e-6 m on every architecture, byte SHA-256 on amd64 only).
+- With `MARSGEO_DATA_DIR` set (full product): every `gdallocationinfo` point is reproduced with the same pixel and
+  float32 bits (run 2026-11-15, all 33 pass, including the four raster corners, which are `MISSING_CONSTANT`). The
+  production registry opens and builds. Pixel statistics: 20,822,672 valid, 8,092,335 `MISSING_CONSTANT`, no other
+  special or non-finite values.
+
+**Known quirk: the VALID range is rounded.** One genuine pixel (916.057068 m) lies below the label's
+`VALID_MINIMUM = 916.06`, which is rounded to two decimals. The predicate treats it as invalid. That is conservative:
+it can only remove coverage near one pixel, never invent data. The test pins this count.
 
 ## 9. HTTP design (approved; implemented in Phase 4A.5)
 
-*(See plan section 5.7 and 11.)*
+- `GET /v1/mars-terrain/{seed}`, where seed is a decimal `uint32`. The response body is the exact
+  `MarsTerrainDataV1` JSON.
+- 200: `Content-Type: application/json`; gzip when `Accept-Encoding` allows (`Vary: Accept-Encoding`); a strong
+  `ETag` from SHA-256 over `registryVersion` and the payload bytes; `Cache-Control: public, max-age=86400`.
+- Errors are RFC 9457 `application/problem+json` with `{type, title, status, detail, code, retryable}` and
+  `type = urn:space-chonkers:problem:<code>`:
+
+| Status | `code` | `retryable` | From |
+|---|---|---|---|
+| 400 | `invalid-request` | false | seed not a decimal uint32 |
+| 422 | `no-coverage` | false | `ErrNoCoverage` |
+| 503 | `data-unavailable` | true | `ErrDataUnavailable` (with `Retry-After`) |
+| 500 | `internal` | true | anything else |
 
 ## 10. Client-team follow-ups (not actioned; the client repo is read-only here)
 

@@ -1,0 +1,61 @@
+{
+ "registryVersion": "test-crop-2026-11-15.1",
+ "entries": [
+  {
+   "productId": "DTEED_029716_1980_029426_1980_A02",
+   "productVersion": "2",
+   "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+   "provider": "NASA/JPL/University of Arizona (HiRISE)",
+   "sourceUrl": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG",
+   "file": "DTEED_029716_1980_029426_1980_A02_crop.IMG",
+   "sha256": "cc34710beef1652e9765933870e56a991e063695babdb85bdaca1a46ce65b82c",
+   "byteSize": 644800,
+   "resolutionMeters": 2.0195488956581,
+   "radiusMeters": 3394839.8133163,
+   "projection": {
+    "centerLatitude": 15,
+    "centerLongitude": 232.49,
+    "lineOffset": 523237.49999999,
+    "sampleOffset": 312.5
+   },
+   "lines": 400,
+   "samples": 400,
+   "kernel": 5,
+   "cellSizeMeters": 10,
+   "gridColumns": 50,
+   "gridRows": 50,
+   "validCentres": {
+    "originX": 0,
+    "originY": 0,
+    "step": 25,
+    "runs": [
+     [
+      6,
+      6,
+      10
+     ],
+     [
+      7,
+      6,
+      10
+     ],
+     [
+      8,
+      6,
+      10
+     ],
+     [
+      9,
+      6,
+      10
+     ],
+     [
+      10,
+      6,
+      10
+     ]
+    ]
+   }
+  }
+ ]
+}
