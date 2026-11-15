@@ -19,21 +19,21 @@ leaderboard, reconnect, combat/units, removal, RabbitMQ/Redis.
 
 ---
 
-## Phase 0 — shared contract (not parallelized)
+## Phase 0 — shared contract (complete)
 
-Both devs participate in C0/C1. C2 is the branch point; after it, Path A and
-Path B must not wait on each other.
+Contract phase complete. C2 was the branch point; Path A and Path B are now
+unblocked and must not wait on each other.
 
 Both devs:
 
 - [x] **C0 — The contract and handoff docs are committed to the repository**
   (0.25 h, no dep). Done in server commit `322d60a`; links/schema/types present.
-- [ ] **C1 — The client team can build against a frozen, schema-validated contract**
-  (1.5 h, after C0). Done when the schema is valid, every `json` example passes,
-  no TBD remains, and the client owner signs off.
-- [ ] **C2 — Both devs can code against agreed package interfaces without waiting
-  on each other** (0.75 h, after C1). Branch point. Done when `match.Sink` and
-  `game` API stubs compile and both paths can run `go test ./...` with fakes.
+- [x] **C1 — The client team can build against a frozen, schema-validated contract**
+  (1.5 h, after C0). Done: schema valid, every `json` example passes, no TBD,
+  client sign-off complete.
+- [x] **C2 — Both devs can code against agreed package interfaces without waiting
+  on each other** (0.75 h, after C1). Done: `match.Sink` and `game` API stubs
+  compile; both paths can run `go test ./...` with fakes.
 
 **C2 interface contract**
 
