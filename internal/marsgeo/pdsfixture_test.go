@@ -31,7 +31,7 @@ func newSynthProduct(w, h int) *synthProduct {
 	p := &synthProduct{
 		W: w, H: h, MapScale: 2, SampleOffset: 100.5, LineOffset: 900000.5,
 		CenterLat: 15, CenterLon: 232.49, RadiusKm: 3394.8398133163,
-		ValidMin: -9000, ValidMax: 9000, ProductID: "DTEED_TEST_A01",
+		ValidMin: -9000, ValidMax: 1e6, ProductID: "DTEED_TEST_A01",
 		Bits: make([]uint32, w*h),
 	}
 	for i := range p.Bits {

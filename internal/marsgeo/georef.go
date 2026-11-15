@@ -25,6 +25,7 @@ type georef struct {
 	pxPerRadLon              float64 // R_p·cos(φ1)/MAP_SCALE
 	pxPerRadLat              float64 // R_p/MAP_SCALE
 	width, height            int
+	shift                    float64 // always pixelIndexShift; a field only so tests can prove they detect a wrong convention
 }
 
 func newGeoref(l *Label) georef {
@@ -36,19 +37,20 @@ func newGeoref(l *Label) georef {
 		pxPerRadLat:  l.RadiusMeters / l.MapScale,
 		width:        l.Samples,
 		height:       l.Lines,
+		shift:        pixelIndexShift,
 	}
 }
 
 // toPixel maps a geographic point to fractional pixel coordinates.
 func (g georef) toPixel(c Coordinate) (x, y float64) {
-	x = g.sampleOffset + float64(longitudeDelta(g.centerLon, c.LongitudeEast)*radians*g.pxPerRadLon) - pixelIndexShift
-	y = g.lineOffset - float64(c.Latitude*radians*g.pxPerRadLat) - pixelIndexShift
+	x = g.sampleOffset + float64(longitudeDelta(g.centerLon, c.LongitudeEast)*radians*g.pxPerRadLon) - g.shift
+	y = g.lineOffset - float64(c.Latitude*radians*g.pxPerRadLat) - g.shift
 	return x, y
 }
 
 // toGeographic is the inverse of toPixel.
 func (g georef) toGeographic(x, y float64) Coordinate {
-	lon := g.centerLon + float64((x+pixelIndexShift-g.sampleOffset)/g.pxPerRadLon)/radians
-	lat := float64((g.lineOffset-y-pixelIndexShift)/g.pxPerRadLat) / radians
+	lon := g.centerLon + float64((x+g.shift-g.sampleOffset)/g.pxPerRadLon)/radians
+	lat := float64((g.lineOffset-y-g.shift)/g.pxPerRadLat) / radians
 	return Coordinate{Latitude: lat, LongitudeEast: normalizeLongitude(lon)}
 }
