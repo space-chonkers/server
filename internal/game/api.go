@@ -68,6 +68,36 @@ type Resources struct {
 	Food   ResourceState `json:"food"`
 }
 
+type ResourceKey string
+
+const (
+	ResourceWater  ResourceKey = "water"
+	ResourceOxygen ResourceKey = "oxygen"
+	ResourceEnergy ResourceKey = "energy"
+	ResourceFood   ResourceKey = "food"
+)
+
+// ResourceRates are the base economy rates and stash capacity for one resource.
+// Phenomena may adjust GPS or CPS after these rates are calculated.
+type ResourceRates struct {
+	StashMax float64
+	GPS      float64
+	CPS      float64
+}
+
+// EconomyRates contains the base rates for all four shared resources.
+type EconomyRates struct {
+	Water  ResourceRates
+	Oxygen ResourceRates
+	Energy ResourceRates
+	Food   ResourceRates
+}
+
+// EconomyResult reports resource pools that reached zero during an economy step.
+type EconomyResult struct {
+	DepletedResources []ResourceKey
+}
+
 // ResourceConfig holds the per-player and per-base-cell tuning values for one
 // resource. Food uses GPSPerPlayer and CPSPerPlayer; its tile values are zero.
 type ResourceConfig struct {

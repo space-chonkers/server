@@ -305,6 +305,12 @@ func TestGenerateWorldRejectsInvalidInputs(t *testing.T) {
 		{name: "invalid spacing", team: 1, change: func(c *Config) { c.InvestigationMinDistance = 0 }},
 		{name: "invalid pool fraction", team: 1, change: func(c *Config) { c.StartingPoolFraction = 1.1 }},
 		{name: "negative resource value", team: 1, change: func(c *Config) { c.Water.GPSPerTile = -1 }},
+		{name: "zero pool capacity", team: 1, change: func(c *Config) { c.Water.PoolPerPlayer = 0 }},
+		{name: "CPS not greater than GPS", team: 1, change: func(c *Config) {
+			c.Water.GPSPerTile = 0.1
+			c.Water.CPSPerPlayer = 0.001
+			c.Water.CPSPerTile = 0.001
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
