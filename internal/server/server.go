@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/match"
 )
 
 // Version is set at build time with -ldflags "-X ...".
@@ -17,6 +18,7 @@ type Server struct {
 	cfg        Config
 	log        *slog.Logger
 	hub        *Hub
+	matches    *match.Manager
 	httpServer *http.Server
 	upgrader   websocket.Upgrader
 }
@@ -26,6 +28,10 @@ func New(cfg Config, log *slog.Logger) *Server {
 		cfg: cfg,
 		log: log,
 		hub: NewHub(),
+		matches: match.NewManager(match.Options{
+			MaxMatches:         cfg.MaxMatches,
+			MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
+		}),
 	}
 	server.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -53,6 +59,7 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.hub.CloseAll()
+	s.matches.Close()
 	return s.httpServer.Shutdown(ctx)
 }
 
