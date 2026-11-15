@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -171,8 +172,8 @@ func TestRequestsBeforeHelloAreRejected(t *testing.T) {
 	ping(t, conn, "ping-after")
 }
 
-func TestKnownRequestAfterHelloIsUnwired(t *testing.T) {
-	// Remove this placeholder assertion when A3/A4 wire the match handlers.
+func TestBaseBuildRemainsUnimplemented(t *testing.T) {
+	// B4 owns the build action handler.
 	s := testServer(t)
 	conn := dialWS(t, s)
 	readWelcome(t, conn)
@@ -185,6 +186,84 @@ func TestKnownRequestAfterHelloIsUnwired(t *testing.T) {
 	})
 	expectError(t, conn, "build-1", protocol.CodeInternal)
 	ping(t, conn, "ping-after")
+}
+
+func TestMatchInputMovesPlayerThroughServer(t *testing.T) {
+	s := testServer(t)
+	conn := dialWS(t, s)
+	readWelcome(t, conn)
+	hello(t, conn, "hello-1", "ana")
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		ID:      "join-1",
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, protocol.MatchJoinRequest{Create: boolPtr(true)}),
+	})
+	joinEnvelope := readEnvelope(t, conn)
+	if joinEnvelope.Type != protocol.TypeMatchJoin || joinEnvelope.ID != "join-1" {
+		t.Fatalf("unexpected join response: id=%q type=%q", joinEnvelope.ID, joinEnvelope.Type)
+	}
+	joined := decodePayload[protocol.MatchJoinResult](t, joinEnvelope)
+	if joined.MatchID == "" || joined.State.Phase != protocol.PhaseLobby {
+		t.Fatalf("unexpected lobby state: %+v", joined)
+	}
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		Type: protocol.TypeMatchInput,
+		Payload: mustRaw(t, protocol.MatchInputRequest{
+			Seq: int64Ptr(0),
+		}),
+	})
+	expectError(t, conn, "", protocol.CodeWrongPhase)
+
+	writeEnvelope(t, conn, protocol.Envelope{ID: "start-1", Type: protocol.TypeMatchStart})
+	startEnvelope := readEnvelope(t, conn)
+	if startEnvelope.Type != protocol.TypeMatchStart || startEnvelope.ID != "start-1" {
+		t.Fatalf("unexpected start response: id=%q type=%q", startEnvelope.ID, startEnvelope.Type)
+	}
+	startedState := decodePayload[protocol.MatchState](t, readEnvelope(t, conn))
+	if startedState.Phase != protocol.PhasePlaying || len(startedState.Players) != 1 {
+		t.Fatalf("unexpected started state: %+v", startedState)
+	}
+	if startedState.Grid != (protocol.GridSize{Width: 50, Height: 50}) ||
+		startedState.BaseCellCount != 9 || len(startedState.Constructions) != 9 {
+		t.Fatalf("unexpected starting world: grid=%+v base=%d constructions=%d",
+			startedState.Grid, startedState.BaseCellCount, len(startedState.Constructions))
+	}
+	initial := startedState.Players[0]
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		Type: protocol.TypeMatchInput,
+		Payload: mustRaw(t, protocol.MatchInputRequest{
+			Seq:  int64Ptr(0),
+			Move: &protocol.InputMove{X: float64Ptr(1), Y: float64Ptr(0)},
+		}),
+	})
+	frameEnvelope := readEnvelope(t, conn)
+	if frameEnvelope.Type != protocol.TypeMatchFrame {
+		t.Fatalf("expected match.frame, got %q", frameEnvelope.Type)
+	}
+	frame := decodePayload[protocol.MatchFrame](t, frameEnvelope)
+	if len(frame.Players) != 1 {
+		t.Fatalf("frame player count = %d, want 1", len(frame.Players))
+	}
+	moved := frame.Players[0]
+	if math.Abs(moved.X-initial.X-DefaultConfig().Rules.PlayerSpeed/DefaultConfig().TickRate) > 1e-12 ||
+		moved.Y != initial.Y {
+		t.Fatalf("input did not move east from %+v to %+v", initial, moved)
+	}
+	if moved.Facing != protocol.FacingEast || moved.LastInputSeq != 0 {
+		t.Fatalf("input state = %+v, want east facing and seq 0", moved)
+	}
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		Type: protocol.TypeMatchInput,
+		Payload: mustRaw(t, protocol.MatchInputRequest{
+			Seq:  int64Ptr(0),
+			Move: &protocol.InputMove{X: float64Ptr(-1), Y: float64Ptr(0)},
+		}),
+	})
+	ping(t, conn, "ping-after-stale-input")
 }
 
 func TestUnknownTypeStaysOpen(t *testing.T) {
@@ -302,3 +381,7 @@ func mustRaw(t *testing.T, value any) []byte {
 func boolPtr(value bool) *bool { return &value }
 
 func intPtr(value int) *int { return &value }
+
+func int64Ptr(value int64) *int64 { return &value }
+
+func float64Ptr(value float64) *float64 { return &value }

@@ -2,15 +2,19 @@ package server
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/game"
+	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -25,6 +29,7 @@ const (
 type Client struct {
 	id          string
 	hub         *Hub
+	matches     *match.Manager
 	conn        *websocket.Conn
 	cfg         Config
 	log         *slog.Logger
@@ -37,18 +42,26 @@ type Client struct {
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
+	return newClient(hub, match.NewManager(match.Options{
+		MaxMatches:         cfg.MaxMatches,
+		MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
+	}), conn, cfg, log)
+}
+
+func newClient(hub *Hub, matches *match.Manager, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		id:   id,
-		hub:  hub,
-		conn: conn,
-		cfg:  cfg,
-		log:  log,
-		send: make(chan []byte, 32),
-		done: make(chan struct{}),
+		id:      id,
+		hub:     hub,
+		matches: matches,
+		conn:    conn,
+		cfg:     cfg,
+		log:     log,
+		send:    make(chan []byte, 32),
+		done:    make(chan struct{}),
 	}, nil
 }
 
@@ -153,6 +166,17 @@ func (c *Client) enqueue(message []byte) {
 
 func (c *Client) readPump() {
 	defer func() {
+		if c.identified() {
+			joined, err := c.matches.LeavePlayer(c.id)
+			if err != nil && protocol.CodeOf(err) != protocol.CodeNotInMatch {
+				c.log.Error("remove disconnected player from match", "client", c.id, "error", err)
+			}
+			if joined != nil {
+				if err := joined.Broadcast(protocol.TypeMatchState, joined.State()); err != nil {
+					c.log.Error("broadcast player departure", "match", joined.ID(), "error", err)
+				}
+			}
+		}
 		c.hub.Remove(c)
 		c.log.Info("client disconnected", "client", c.id, "clients", c.hub.Count())
 	}()
@@ -224,9 +248,98 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 			PlayerID: c.id,
 			Nickname: request.Nickname,
 		})
+	case *protocol.MatchJoinRequest:
+		c.handleMatchJoin(envelope.ID, request)
+	case *protocol.MatchLeaveRequest:
+		c.handleMatchLeave(envelope.ID)
+	case *protocol.MatchStartRequest:
+		c.handleMatchStart(envelope.ID)
+	case *protocol.MatchInputRequest:
+		c.handleMatchInput(request)
 	default:
 		// A3/A4 replace this branch with match lifecycle handlers.
 		c.sendError(envelope.ID, protocol.CodeInternal, fmt.Sprintf("%s is not implemented yet", request.RequestType()))
+	}
+}
+
+func (c *Client) handleMatchLeave(id string) {
+	joined, err := c.matches.LeavePlayer(c.id)
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeMatchLeave, protocol.OKPayload{})
+	if joined != nil {
+		if err := joined.Broadcast(protocol.TypeMatchState, joined.State()); err != nil {
+			c.log.Error("broadcast player departure", "match", joined.ID(), "error", err)
+		}
+	}
+}
+
+func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) {
+	var (
+		joined *match.Match
+		err    error
+	)
+	switch {
+	case request.MatchID != nil:
+		joined, err = c.matches.Join(*request.MatchID, c.id, c.nickname, c)
+	case request.Create != nil && *request.Create:
+		joined, err = c.matches.Create(c.id, c.nickname, c)
+	default:
+		joined, err = c.matches.JoinAny(c.id, c.nickname, c)
+	}
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeMatchJoin, protocol.MatchJoinResult{
+		MatchID: joined.ID(),
+		State:   joined.State(),
+	})
+}
+
+func (c *Client) handleMatchStart(id string) {
+	var randomSeed [8]byte
+	if _, err := rand.Read(randomSeed[:]); err != nil {
+		c.sendError(id, protocol.CodeInternal, "generate match seed")
+		c.log.Error("generate match seed", "client", c.id, "error", err)
+		return
+	}
+	config := game.DefaultConfig()
+	config.InvestigationCount = c.cfg.Rules.InvestigationCount
+	started, err := c.matches.StartForPlayer(
+		c.id,
+		int64(binary.LittleEndian.Uint64(randomSeed[:])),
+		config,
+	)
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
+	if err := started.Broadcast(protocol.TypeMatchState, started.State()); err != nil {
+		c.log.Error("broadcast match start state", "match", started.ID(), "error", err)
+	}
+}
+
+func (c *Client) handleMatchInput(request *protocol.MatchInputRequest) {
+	if c.cfg.TickRate <= 0 || math.IsNaN(c.cfg.TickRate) || math.IsInf(c.cfg.TickRate, 0) {
+		c.sendError("", protocol.CodeInternal, "server tick rate must be finite and positive")
+		return
+	}
+	joined, applied, err := c.matches.ApplyPlayerInput(
+		c.id, request, c.cfg.Rules.PlayerSpeed, 1/c.cfg.TickRate,
+	)
+	if err != nil {
+		c.sendProtocolError("", err)
+		return
+	}
+	if !applied {
+		return
+	}
+	if err := joined.Broadcast(protocol.TypeMatchFrame, joined.Frame()); err != nil {
+		c.log.Error("broadcast match frame", "match", joined.ID(), "error", err)
 	}
 }
 

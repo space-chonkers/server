@@ -5,6 +5,7 @@ package match
 import (
 	"sync"
 
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -21,12 +22,16 @@ type Member struct {
 	Sink     Sink
 }
 
-// Match is one lobby. mu guards members and hostSlot.
+// Match is one lobby or live game. mu guards all match-owned state.
 type Match struct {
 	mu       sync.RWMutex
 	id       string
 	members  []*Member // index == slot; nil is free
 	hostSlot int       // -1 when the match is empty
+	phase    protocol.Phase
+	world    *game.World
+	players  []protocol.PlayerState
+	tick     int64
 }
 
 func newMatch(id string, maxPlayers int) *Match {
@@ -34,6 +39,7 @@ func newMatch(id string, maxPlayers int) *Match {
 		id:       id,
 		members:  make([]*Member, maxPlayers),
 		hostSlot: -1,
+		phase:    protocol.PhaseLobby,
 	}
 }
 
@@ -45,6 +51,10 @@ func (m *Match) ID() string { return m.id }
 func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.phase != protocol.PhaseLobby {
+		return 0, protocol.Errorf(protocol.CodeMatchInProgress, "match %s has already started", m.id)
+	}
 
 	free := -1
 	for slot, member := range m.members {

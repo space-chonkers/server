@@ -94,7 +94,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(s.hub, conn, s.cfg, s.log)
+	client, err := newClient(s.hub, s.matches, conn, s.cfg, s.log)
 	if err != nil {
 		s.log.Error("create client", "error", err)
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "internal error"), time.Now().Add(writeWait))
