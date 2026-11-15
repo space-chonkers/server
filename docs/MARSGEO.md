@@ -30,8 +30,18 @@ Status: Phase 4A (engine). The HTTP endpoint (section 9) is Phase 4A.5.
 HiRISE labels use a local radius of the Mars ellipsoid at `CENTER_LATITUDE`, which differs per product. Contract §3
 says HiRISE "often use 3,396,190 m", which is not what the labels contain (follow-up for the client team, section 10).
 
-Corner placement ports `marsCoordinates.ts` step by step. The values `π/180` and R are held in runtime `float64`
-variables because Go folds constant expressions exactly while JavaScript rounds after each operation.
+Corner placement uses the same formulas, in the same evaluation order, as `marsCoordinates.ts`. The values `π/180` and
+R are held in runtime `float64` variables because Go folds constant expressions exactly, while JavaScript rounds after
+each operation.
+
+The results are not guaranteed bit-identical. Go's `math.Cos` and a JS engine's `Math.cos` (which also varies between
+engines) can differ by an ulp or two. An independent comparison of 20,000 random inputs against the client's own code
+under JavaScriptCore found:
+- latitude and north: identical;
+- east: up to 2 ulp different;
+- longitude: 1 ulp different in one case.
+
+That is about 1e-14 m, far below any rendering or scientific significance.
 
 ## 3. Supported products and missing data
 
@@ -168,6 +178,11 @@ predicate before resampling. A registry that disagrees with the data gives `ErrN
 `intn(len(entries))`, then the centre `intn(validCount)`. The location is a function of the registry content and the
 seed, so a registry change can remap seeds; `registryVersion` records that. The payload's `center` is that lattice
 pixel's centre under the verified convention.
+
+**Future consideration: selection weighting.** Selection is uniform per product first, then per centre within that
+product. With one product today this is uniform over all valid centres. With several products, small products would be
+over-represented relative to their area. Before adding a second product, decide whether to keep this or weight
+products by valid-centre count (uniform over all centres). Either change remaps seeds, so bump `registryVersion`.
 
 ## 7. No fallback
 

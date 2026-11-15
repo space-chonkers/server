@@ -25,8 +25,12 @@ type LocalPoint struct {
 }
 
 // Runtime float64 values, not constants: Go folds constant expressions
-// exactly, while the client (JavaScript) rounds after every operation. These
-// match Math.PI / 180 and the client's evaluation order bit for bit.
+// exactly, while the client (JavaScript) rounds after every operation, so
+// these follow Math.PI / 180 and the client's evaluation order. The formulas
+// and order agree with marsCoordinates.ts, but results are not guaranteed
+// bit-identical: Go's math.Cos and a JS engine's Math.cos may differ by an ulp
+// or two (and JS engines differ from each other). An independent comparison
+// against the client code found differences of at most 2 ulp, about 1e-14 m.
 var (
 	piFloat64    float64 = math.Pi
 	radians              = piFloat64 / 180

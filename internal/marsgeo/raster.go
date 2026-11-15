@@ -38,6 +38,15 @@ func OpenProduct(r io.ReaderAt, size int64) (*Product, error) {
 	return &Product{Label: lab, r: r, size: size, geo: newGeoref(lab)}, nil
 }
 
+// WindowInside reports whether [x0, x0+w) x [y0, y0+h) is a non-empty window
+// inside a samples x lines raster. It compares by subtraction, so no input,
+// however large, can overflow (x0+w would wrap for w near MaxInt). Used by
+// ReadWindow and by the prep tool's crop check.
+func WindowInside(x0, y0, w, h, samples, lines int) bool {
+	return w > 0 && h > 0 && x0 >= 0 && y0 >= 0 &&
+		x0 < samples && y0 < lines && w <= samples-x0 && h <= lines-y0
+}
+
 // Window is a rectangle of raw samples, row-major from (X0, Y0).
 type Window struct {
 	X0, Y0, W, H int
@@ -59,7 +68,7 @@ func (w *Window) Contains(x, y int) bool {
 // the raster.
 func (p *Product) ReadWindow(x0, y0, w, h int) (*Window, error) {
 	lab := p.Label
-	if w <= 0 || h <= 0 || x0 < 0 || y0 < 0 || x0+w > lab.Samples || y0+h > lab.Lines {
+	if !WindowInside(x0, y0, w, h, lab.Samples, lab.Lines) {
 		return nil, fmt.Errorf("%w: window (%d,%d %dx%d) outside raster %dx%d", ErrNoCoverage, x0, y0, w, h, lab.Samples, lab.Lines)
 	}
 	win := &Window{X0: x0, Y0: y0, W: w, H: h, Bits: make([]uint32, w*h)}

@@ -229,3 +229,29 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// TestCropExtremeValues: crop windows that would overflow x0+w or y0+h, or
+// are negative, zero-sized or outside the raster, are rejected cleanly (no
+// panic) and write nothing.
+func TestCropExtremeValues(t *testing.T) {
+	srv, _ := rangeServer(t, synthetic(400, "PC_REAL"))
+	for _, crop := range []string{
+		"1,0,9223372036854775807,1", "0,1,1,9223372036854775807", "9223372036854775807,0,1,1",
+		"0,0,9223372036854775808,1", // does not fit in int
+		"-1,0,10,10", "0,-1,10,10", "0,0,0,10", "0,0,10,0", "0,0,-5,10",
+		"400,0,1,1", "0,400,1,1", "399,0,2,1", "0,0,401,10", "1,2,3", "a,b,c,d",
+	} {
+		t.Run(crop, func(t *testing.T) {
+			out := t.TempDir()
+			cfg := testConfig(srv.URL+"/p.IMG", out)
+			cfg.crop = crop
+			cfg.sourceSHA256 = strings.Repeat("ab", 32)
+			if err := run(cfg); err == nil {
+				t.Fatal("accepted")
+			}
+			if entries, _ := os.ReadDir(out); len(entries) != 0 {
+				t.Fatalf("wrote %v", entries)
+			}
+		})
+	}
+}

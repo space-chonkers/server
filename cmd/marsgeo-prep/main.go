@@ -17,7 +17,11 @@
 // writes a re-labelled <PRODUCT_ID>_crop.IMG, a provenance JSON and a
 // registry for the crop.
 //
-// On any verification failure it exits non-zero and writes nothing.
+// It exits non-zero on any failure. Label, format, coverage and checksum
+// verification all happen before the first output file is written, so a
+// verification failure writes nothing. Writes are not atomic as a set: an I/O
+// error while writing crop-mode outputs (crop, provenance, registry) can
+// leave the earlier files behind; delete the output and re-run.
 package main
 
 import (

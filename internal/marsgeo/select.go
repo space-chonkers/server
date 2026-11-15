@@ -26,7 +26,9 @@ func (r *splitMix64) intn(n int) int {
 }
 
 // selectLocation maps a seed to (entry index, centre index): the entry is
-// drawn first, then the centre within that entry's lattice.
+// drawn first, uniformly, then the centre within that entry's lattice. This
+// is uniform per product, not per centre; with several products, small ones
+// would be over-represented (docs/MARSGEO.md §6, future consideration).
 func selectLocation(seed uint32, centresPerEntry []int) (entry, centre int) {
 	rng := splitMix64{state: uint64(seed)}
 	entry = rng.intn(len(centresPerEntry))

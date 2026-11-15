@@ -363,3 +363,24 @@ func TestProductIDMustBeSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestReadWindowExtremeBounds: windows whose x0+w or y0+h would overflow int
+// are rejected with ErrNoCoverage instead of panicking in make.
+func TestReadWindowExtremeBounds(t *testing.T) {
+	prod := newSynthProduct(5, 4).open(t)
+	const max = math.MaxInt
+	for _, c := range [][4]int{
+		{1, 0, max, 1}, {0, 1, 1, max}, {max, 0, 1, 1}, {0, max, 1, 1}, {max, max, max, max},
+		{-1, 0, 1, 1}, {0, -1, 1, 1}, {0, 0, 0, 1}, {0, 0, 1, 0}, {0, 0, -1, 1}, {0, 0, 1, math.MinInt},
+		{5, 0, 1, 1}, {0, 4, 1, 1}, {4, 0, 2, 1}, {0, 3, 1, 2}, {math.MinInt, 0, max, 1},
+	} {
+		if _, err := prod.ReadWindow(c[0], c[1], c[2], c[3]); !errors.Is(err, ErrNoCoverage) {
+			t.Errorf("ReadWindow%v: err = %v, want ErrNoCoverage", c, err)
+		}
+	}
+	for _, c := range [][4]int{{0, 0, 5, 4}, {4, 3, 1, 1}, {2, 1, 3, 3}} {
+		if _, err := prod.ReadWindow(c[0], c[1], c[2], c[3]); err != nil {
+			t.Errorf("ReadWindow%v: %v", c, err)
+		}
+	}
+}

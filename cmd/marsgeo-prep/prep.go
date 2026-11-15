@@ -195,7 +195,7 @@ func runCrop(cfg config) error {
 	if err != nil {
 		return err
 	}
-	if x0+w > lab.Samples || y0+h > lab.Lines {
+	if !marsgeo.WindowInside(x0, y0, w, h, lab.Samples, lab.Lines) {
 		return fmt.Errorf("crop %s outside the %dx%d raster", cfg.crop, lab.Samples, lab.Lines)
 	}
 	// One Range request for the whole lines of the window.
