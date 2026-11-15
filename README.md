@@ -2,8 +2,8 @@
 
 Baseline Go WebSocket server for the game. It is intentionally small: one
 service, one WebSocket endpoint, JSON request/response envelopes, health
-checks, and graceful shutdown. Docker is the only local prerequisite; Go does
-not need to be installed on the host.
+checks, and graceful shutdown. Docker is the only prerequisite to run the
+server; the reference bot needs Go 1.25+ (or the Go builder image).
 
 The MVP target is a **1–4 player cooperative 50×50 grid survival builder**:
 players spawn in a 3×3 base, manage shared water/oxygen/energy/food pools, expand
@@ -43,13 +43,15 @@ center; players spawn on the base edge and move only inside the base.
 - [JSON Schema](docs/protocol/v1.schema.json) — machine-readable message schemas.
 - [M1 ticket board](docs/TICKETS-M1.md) — parallelizable implementation tasks.
 - [Protocol TypeScript types](docs/protocol/v1.ts) — client-side reference types.
+- [Reference bot](cmd/bot/README.md) — contract-faithful smoke client.
 - [Architecture handoff](docs/DESCRIPTION.md) — sketch-to-code mapping.
 
 ## Layout
 
 ```text
 cmd/server/main.go          process startup and shutdown
-internal/server/config.go   environment configuration
+cmd/bot/                    reference client and smoke-test driver
+internal/server/config.go   environment configuration and validation
 internal/server/server.go   HTTP routes and WebSocket upgrade
 internal/server/hub.go      connected-client registry
 internal/server/client.go   read/write pumps, welcome/hello handshake
@@ -69,8 +71,18 @@ docker compose up --build
 - Readiness: <http://localhost:8080/readyz>
 - Debug matches (P1, disabled by default): `/debug/matches`
 
-Stop it with `docker compose down`. The client container is not wired in this
-repo yet; connect a client to the WebSocket URL when ready.
+Stop it with `docker compose down`. The server handles `SIGTERM`, closes
+connected sockets with `1001`, and exits within `SHUTDOWN_TIMEOUT_SECONDS`.
+
+The reference bot is a separate Go command:
+
+```sh
+go run ./cmd/bot -players 4 -duration 60s
+```
+
+See [cmd/bot/README.md](cmd/bot/README.md) for flags and limitations. The client
+container is not wired in this repo yet; connect a client to the WebSocket URL
+when ready.
 
 ## WebSocket protocol
 
@@ -97,7 +109,8 @@ time, limits, and gameplay rules. The client then identifies once:
 | --- | --- |
 | `ping` | Any phase; answered with `pong`. |
 | `player.hello` | Once per connection; answered with `player.hello`. |
-| `match.join`, `match.leave`, `match.start`, `match.input`, `stash.collect`, `base.build`, `phenomenon.fix` | Validated by the contract; match handlers land in A3/A4. |
+| `match.join`, `match.leave`, `match.start`, `match.input` | Wired through the match lifecycle and movement handlers. |
+| `stash.collect`, `base.build`, `phenomenon.fix` | Validated by the contract; action handlers are pending the B4/B5 convergence wiring. |
 
 Unknown types return `error: "unsupported_type"` and keep the socket open.
 Errors use a stable `error` code plus a human-readable `payload.message`.
@@ -125,17 +138,33 @@ URL on the same origin and set `ALLOWED_ORIGINS` to that origin.
 
 ## Configuration
 
-All settings are environment variables and have defaults:
+Server settings are environment variables and have defaults:
 
 | Variable                   | Default | Purpose                                      |
 | -------------------------- | ------- | -------------------------------------------- |
-| `PORT`                     | `8080`  | HTTP listen port.                            |
-| `WS_PATH`                  | `/ws`   | WebSocket route.                             |
-| `ALLOWED_ORIGINS`          | `*`     | Comma-separated origins; `*` allows all.     |
+| `PORT`                     | `8080`  | HTTP listen port (`1..65535`).               |
+| `WS_PATH`                  | `/ws`   | Exact WebSocket route; a leading `/` is added if omitted. |
+| `ALLOWED_ORIGINS`          | `*`     | Comma-separated `http(s)://host[:port]` origins; `*` allows all. |
 | `MAX_MESSAGE_BYTES`        | `32768` | Maximum incoming WebSocket frame size.       |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `10`    | Graceful shutdown deadline.                  |
 
-`ALLOWED_ORIGINS=*` is convenient locally. Set a real origin in production.
+Invalid values fail startup with an `invalid configuration` log and exit code
+`1`; they never silently fall back to a default. `ALLOWED_ORIGINS=*` is
+convenient locally. Set a real origin in production.
+
+Gameplay rules are compiled defaults published in `welcome.rules`:
+
+| Rule | Default |
+| --- | --- |
+| Grid | `50×50` |
+| Investigation cells | `10` |
+| Build cost | water `5`, oxygen `5`, energy `5`, food `0` |
+| Player speed | `4` cells/s |
+| Phenomenon roll | every 30 seconds |
+| Tick / frame rate | `30` / `15` Hz |
+
+Changing these requires a code change and restart; clients read the current
+values from `welcome.rules`.
 
 ## Production container
 
@@ -148,7 +177,9 @@ VERSION=1.0.0 ALLOWED_ORIGINS=https://game.example.com docker compose up -d
 ```
 
 The image is tagged `space-chonkers/server:${VERSION:-dev}`. Override
-`SERVER_PORT` when the host port differs from `8080`.
+`SERVER_PORT` when the host port differs from `8080`. Compose gives the server a
+15-second stop grace period, leaving room for the default 10-second shutdown
+timeout.
 
 ## Tests
 
