@@ -21,8 +21,8 @@ cells, and the outcome are shared; there is no individual score.
   not block.
 - **Collect** all four resources at the stash; overflow beyond pool capacity is
   lost.
-- **Build** a base tile from a base cell onto an orthogonal empty neighbor;
-  costs water/O2/energy and raises water/O2/energy income and upkeep.
+- **Build** a base tile on the single empty cell directly in front of the
+  character; costs water/O2/energy and raises water/O2/energy income and upkeep.
 - **Survive** server phenomena: solar storm (GPS down), water leak/oxygen loss
   (CPS up), or rotten food (one-time food loss). Fix the persistent ones at the
   stash with energy.
@@ -40,11 +40,16 @@ cells, and the outcome are shared; there is no individual score.
   8 cells are `base_tile`. `baseCellCount = 9`.
 - Constructions are 1×1, no rotation, no removal. The stash is pre-placed and
   cannot be built or removed.
-- Players spawn at the four cardinal edge cells (N/E/S/W by slot), may overlap,
-  and move continuously **only inside the base**. Constructions are
-  non-blocking.
-- Build: player stands on a base cell; target must be orthogonally adjacent to
-  the player's cell, in bounds, empty, and affordable. Instant; no refund.
+- Players spawn at the four cardinal edge cells (N/E/S/W by slot), facing
+  radially outward, may overlap, and move continuously **only inside the base**.
+  Constructions are non-blocking.
+- Each player has a cardinal `facing` (`north/east/south/west`). It follows the
+  dominant axis of the last nonzero movement input; exact ties keep the current
+  facing; zero input leaves it unchanged. Facing updates even if movement is
+  clamped by the base edge, so pushing toward a target turns the character.
+- Build: player stands on a base cell; target must be the **single cell directly
+  in front** (`current cell + facing`), in bounds, empty, and affordable.
+  Instant; no refund. No other adjacent cell is valid.
 - No combat, projectiles, NPCs, or worker units.
 
 ### Resources
@@ -182,7 +187,7 @@ bot goal-seeking, and reduce N.
 | Phenomena feel unfair | One at a time; fixed costs visible; roll timer resets; tune weights |
 | Base-only movement clamp bugs | Axis-separated clamp + unit tests |
 | State desync on build/phenomenon | Reliable control events + full state at start; no removal |
-| Client build UI targets wrong cell | Server validates; UI only offers orthogonal neighbors of current cell |
+| Client build UI targets wrong cell | Server validates; UI only offers the single front cell |
 | Scope creep (combat/units/removal) | Hard P2 cut line |
 
 ## 7. Placeholder constants
@@ -212,7 +217,8 @@ Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_MULTIPLIER=0.9`,
 
 - [ ] 1–4 players spawn in the 3×3 base, move only inside it, and overlap.
 - [ ] Collect moves all four resources and reports overflow lost.
-- [ ] Build costs water/O2/energy, adds one base cell, updates GPS/CPS/caps.
+- [ ] Build only succeeds on the single front cell, costs water/O2/energy, adds
+      one base cell, and updates GPS/CPS/caps.
 - [ ] Any pool at 0 ends the match in a loss.
 - [ ] All investigation cells covered ends the match in a win.
 - [ ] Solar/water/oxygen phenomena persist until fixed; rotten food is instant.

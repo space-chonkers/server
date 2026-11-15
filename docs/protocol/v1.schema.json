@@ -78,13 +78,18 @@
       },
       "additionalProperties": false
     },
+    "Facing": {
+      "type": "string",
+      "enum": ["north", "east", "south", "west"]
+    },
     "PlayerState": {
       "type": "object",
-      "required": ["id", "slot", "name", "x", "y", "vx", "vy", "lastInputSeq"],
+      "required": ["id", "slot", "name", "facing", "x", "y", "vx", "vy", "lastInputSeq"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "slot": { "type": "integer", "minimum": 0, "maximum": 3 },
         "name": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "facing": { "$ref": "#/$defs/Facing" },
         "x": { "type": "number" },
         "y": { "type": "number" },
         "vx": { "type": "number" },
@@ -411,7 +416,7 @@
         "not_host",
         "wrong_phase",
         "not_on_base",
-        "not_adjacent",
+        "not_in_front",
         "cell_occupied",
         "out_of_bounds",
         "insufficient_resources",

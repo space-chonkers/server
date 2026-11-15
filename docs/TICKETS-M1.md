@@ -38,8 +38,8 @@ Both devs:
 **C2 interface contract**
 
 - Dev A owns `internal/match/contract.go`: `Sink`, member/player types, phase.
-- Dev B owns `internal/game/api.go`: grid, resources, actions, phenomena,
-  state snapshot types.
+- Dev B owns `internal/game/api.go`: grid, player facing, resources, actions,
+  phenomena, state snapshot types.
 - Freeze these files after C2. Wire changes go back through C1; package
   internals stay independent.
 
@@ -57,7 +57,7 @@ Depends only on C2. Use a fake `game` implementation for all server tests.
 | A4 | Players can create, join, leave, and start a lobby | 1.25 h | A2, A3 | Join/create/quickjoin; 5th `match_full`; start emits full state; host migration; atomic quickjoin | `internal/match/join.go` |
 | A5 | Clients can reconstruct the world from a start state, reliable deltas, and lossy frames | 1.25 h | A3, A4 | Start state exact; 15 Hz frames; build/phenomenon reliable; slow reader isolated; control queue `1011` | `internal/match/broadcast.go`, `internal/server/client.go` |
 | A6 | Operators can configure, run, and shut down the match server with documented defaults | 0.75 h | A4, A5 | Defaults start; invalid config fails; `SIGTERM` clean; Compose serves; no new deps | `cmd/server/**`, `internal/server/config.go`, `README.md` |
-| A7 | A bot can play the full loop as a reference client and demo fallback | 1.25 h | A2, A4 | Bot connects/joins and sends move/collect/build/fix frames; fake-server test passes; 4-bot 60 s smoke in convergence | `cmd/bot/**` |
+| A7 | A bot can play the full loop as a reference client and demo fallback | 1.25 h | A2, A4 | Bot connects/joins, turns by moving, sends move/collect/build/fix frames; fake-server test passes; 4-bot 60 s smoke in convergence | `cmd/bot/**` |
 
 **Path A critical path:** A1 → A2/A3 → A4 → A5 → A6. A7 can start after A4.
 
@@ -75,8 +75,8 @@ Depends only on C2. Use standalone game tests; do not edit server/transport file
 | --- | --- | --- | --- | --- | --- |
 | B1 | Starting a match creates a valid 50×50 base, stash, goal cells, spawns, and resources | 2 h | C2 | 3×3 fits; 8 tiles + stash; N goals outside start; cardinal spawns; seed deterministic; rates match formulas | `internal/game/{map,state}.go` |
 | B2 | The team can watch four resource pools generate, drain, cap, and end the match | 2 h | B1 | Per-resource formulas; stash overflow lost; any pool 0 loss; `teamSize` frozen; `cps > gps` validated | `internal/game/economy.go` |
-| B3 | Players can move smoothly inside the base and are blocked from leaving it | 1.5 h | B1 | Speed/clamp; diagonal/half-speed; axis slide; cannot leave base; newly built tile is walkable; players overlap | `internal/game/movement.go`, `internal/match/input.go` |
-| B4 | Players can collect the shared stash and expand the base with paid adjacent tiles | 2 h | B2, B3 | Build costs/deltas; all error cases; collect clamp/overflow; win/loss precedence; no partial actions | `internal/game/actions.go`, `internal/match/actions.go` |
+| B3 | Players can move inside the base, overlap freely, and turn to face any cardinal direction | 1.5 h | B1 | Speed/clamp; diagonal/half-speed; axis slide; cannot leave base; facing from last nonzero move; blocked pushes still turn; front cell derives from facing; new tile walkable | `internal/game/movement.go`, `internal/match/input.go` |
+| B4 | Players can collect the shared stash and expand the base with a paid tile directly in front | 2 h | B2, B3 | Build only front cell (`not_in_front`); costs/deltas; all error cases; collect clamp/overflow; win/loss precedence; no partial actions | `internal/game/actions.go`, `internal/match/actions.go` |
 | B5 | The server can roll a phenomenon, apply its effect, and let the team fix it at the stash | 2 h | B2, B4 | One active; 0–4 enum; effects exact; fix at stash/energy; instant food; timer reset; event payload matches C2 API | `internal/game/phenomena.go`, `internal/match/actions.go` |
 
 **Path B critical path:** B1 → B2/B3 → B4 → B5.

@@ -75,10 +75,18 @@ Close codes: `1000` normal, `1001` shutdown, `1003` binary frame, `1008` policy
   `[x,x+1) × [y,y+1)`; center is `(x+0.5, y+0.5)`.
 - Base = union of cells with `base_tile` or `stash`. Start is a random 3×3 base
   with 8 `base_tile` and a unique `stash` at the center; `baseCellCount = 9`.
-- Players spawn at N/E/S/W edge cells by slot, move continuously, stay inside
-  the base, may overlap, and ignore other players/constructions for collision.
-- Build: stand on a base cell; target must be **orthogonally adjacent to the
-  player's current cell**, in bounds, empty, and affordable. Instant, no removal.
+- Players spawn at N/E/S/W edge cells by slot, facing radially outward, move
+  continuously, stay inside the base, may overlap, and ignore other players and
+  constructions for collision.
+- Each player has a cardinal `facing`: `north|east|south|west`. It is derived
+  from the last nonzero `move`: use the axis with the larger absolute component;
+  exact ties keep the current facing; zero/omitted input leaves it unchanged.
+  Facing updates even when movement is blocked by the base edge. There is no
+  separate facing input. Facing controls build direction and visuals only.
+- Build: stand on a base cell; the target must be the **single cell directly in
+  front** of the player (`current cell + facing`), in bounds, empty, and
+  affordable. Instant, no removal.
+- Facing offsets: north `(0,-1)`, east `(+1,0)`, south `(0,+1)`, west `(-1,0)`.
 - No combat, units, projectiles, or NPCs.
 
 ## 4. Resources and economy
@@ -178,6 +186,10 @@ Type 3: same with `"oxygen"`. Type 4 only appears in `match.phenomenon`:
   Server clamps length to 1; magnitude scales `rules.playerSpeed`. One input per
   tick; `lastInputSeq` acknowledges. Base-only movement with axis-separated
   sliding.
+- `facing` is derived from the last nonzero `move` (dominant axis; exact ties
+  keep the current facing); zero/omitted input keeps facing. Facing updates even
+  when movement is clamped, so push toward the target to turn before building.
+  There is no separate facing input.
 - `base.build` response:
 
 ```text
@@ -191,9 +203,12 @@ Type 3: same with `"oxygen"`. Type 4 only appears in `match.phenomenon`:
 }
 ```
 
+- `base.build` target MUST equal `current cell + facing`. To build elsewhere,
+  push a small `move` toward that cell first; facing updates even if movement is
+  clamped. No other adjacent cell is accepted.
 - `stash.collect` response: `{collected: {water,oxygen,energy,food}, lost: {...}, resources}`.
 - `phenomenon.fix` response: `{phenomenon: {type:0,...}, resources}`.
-- Errors: `not_on_base`, `not_adjacent`, `cell_occupied`, `out_of_bounds`,
+- Errors: `not_on_base`, `not_in_front`, `cell_occupied`, `out_of_bounds`,
   `insufficient_resources` (payload `missing`), `not_at_stash`,
   `insufficient_energy`, `no_phenomenon`, `wrong_phase`, `match_over`.
 
@@ -241,7 +256,7 @@ Key shape:
     "grid": { "width": 50, "height": 50 },
     "baseCellCount": 9,
     "teamSize": 2,
-    "players": [ { "id": "p_1a2b3c4d", "slot": 0, "name": "ana", "x": 25.5, "y": 24.5, "vx": 0, "vy": 0, "lastInputSeq": -1 } ],
+    "players": [ { "id": "p_1a2b3c4d", "slot": 0, "name": "ana", "facing": "north", "x": 25.5, "y": 24.5, "vx": 0, "vy": 0, "lastInputSeq": -1 } ],
     "constructions": [ { "id": "c_1", "kind": "base_tile", "cellX": 24, "cellY": 24 }, { "id": "c_5", "kind": "stash", "cellX": 25, "cellY": 25 } ],
     "investigation": [ { "cellX": 12, "cellY": 8 } ],
     "resources": { "water": {}, "oxygen": {}, "energy": {}, "food": {} },
@@ -251,8 +266,9 @@ Key shape:
 ```
 
 `players` sorted by slot; `constructions` sorted by cell; `investigation` sorted.
-`teamSize` is frozen at `match.start` and drives pool caps, CPS, stash caps, and
-food GPS; it does not decrease when a player leaves. `phase` is
+`players[].facing` is cardinal and controls build direction. `teamSize` is
+frozen at `match.start` and drives pool caps, CPS, stash caps, and food GPS; it
+does not decrease when a player leaves. `phase` is
 `lobby|countdown|playing`; `match.ended` is terminal. In lobby,
 `constructions`/`investigation` are empty, resources zero, `baseCellCount=0`,
 and `teamSize` is the current lobby player count.
@@ -265,7 +281,7 @@ and `teamSize` is the current lobby player count.
   "payload": {
     "matchId": "AB12", "tick": 137, "serverTimeMs": 1763222404500,
     "hostId": "p_1a2b3c4d", "baseCellCount": 9, "teamSize": 2,
-    "players": [ { "id": "p_1a2b3c4d", "slot": 0, "name": "ana", "x": 25.5, "y": 24.9, "vx": 0, "vy": 4, "lastInputSeq": 137 } ],
+    "players": [ { "id": "p_1a2b3c4d", "slot": 0, "name": "ana", "facing": "south", "x": 25.5, "y": 24.9, "vx": 0, "vy": 4, "lastInputSeq": 137 } ],
     "resources": { "water": {}, "oxygen": {}, "energy": {}, "food": {} },
     "phenomenon": { "type": 0, "startedAtMs": 0, "fixCostEnergy": 0, "effects": {} }
   }
@@ -334,7 +350,7 @@ client-side.
 `protocol_version_mismatch` (close `1008`), `not_identified`,
 `already_identified`, `already_in_match`, `not_in_match`, `match_not_found`,
 `match_full`, `match_in_progress`, `not_host`, `wrong_phase`, `not_on_base`,
-`not_adjacent`, `cell_occupied`, `out_of_bounds`, `insufficient_resources`,
+`not_in_front`, `cell_occupied`, `out_of_bounds`, `insufficient_resources`,
 `insufficient_energy`, `not_at_stash`, `no_phenomenon`, `match_over`,
 `invalid_cell`, `server_full`, `rate_limited`, `internal`.
 
@@ -365,8 +381,10 @@ movement, base, resources, and events; never trust client positions.
 1. Check `welcome.protocolVersion`; store `rules`.
 2. Replace full state on `match.state`; apply build/phenomenon deltas.
 3. Derive current cell with `floor(x)`, `floor(y)`.
-4. Build UI: only the four orthogonal neighbors of the current cell that are
-   in bounds and empty; show `rules.buildCost`; disable if any cost is short.
+4. Build UI: compute the single cell in front from the current cell + `facing`;
+   enable only if it is in bounds and empty. To build elsewhere, push a small
+   `move` toward that cell first; facing updates even if movement is clamped.
+   Show `rules.buildCost`; disable if any cost is short.
 5. Collect UI: only on stash cell; show per-resource stash and pool caps;
    collection discards overflow.
 6. Fix UI: only on stash cell; show `phenomenon.fixCostEnergy`; disable if

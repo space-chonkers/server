@@ -78,7 +78,7 @@ Schema paths are `#/$defs/<Name>`. Validate incoming client messages with
 
 | Schema | Required |
 | --- | --- |
-| `PlayerState` | `id`, `slot`, `name`, `x`, `y`, `vx`, `vy`, `lastInputSeq` |
+| `PlayerState` | `id`, `slot`, `name`, `facing`, `x`, `y`, `vx`, `vy`, `lastInputSeq` |
 | `Construction` | `id`, `kind`, `cellX`, `cellY` |
 | `ResourceAmounts` | `water`, `oxygen`, `energy`, `food` |
 | `Resources` | `water`, `oxygen`, `energy`, `food` |
@@ -149,8 +149,9 @@ Notes:
 - [ ] Check `welcome.protocolVersion`; store `welcome.rules`.
 - [ ] Replace full state on `match.state`; apply build/phenomenon deltas.
 - [ ] Derive current cell with `floor(x)`, `floor(y)`.
-- [ ] Build UI: four orthogonal empty neighbors of the current cell; show
-      `rules.buildCost`; disable if any pool is short.
+- [ ] Build UI: only the single cell in front (`current cell + facing`); turn
+      by pushing a small `move` toward the target (facing updates even when
+      blocked); show `rules.buildCost`; disable if any pool is short.
 - [ ] Collect UI: stash cell only; discard overflow; show `collected`/`lost`.
 - [ ] Fix UI: stash cell only; show `phenomenon.fixCostEnergy`; disable if
       energy is short.

@@ -24,9 +24,9 @@ center; players spawn on the base edge and move only inside the base.
   capacity scales with base cells and team size).
 - **Survival:** GPS fills the stash; CPS drains the pool. CPS > GPS by design,
   so the team always loses ground. Collect at the stash to refill the pool.
-- **Expansion:** build a base tile by standing on the base and targeting an
-  orthogonal empty neighbor. Costs water/O2/energy; raises water/O2/energy
-  income and upkeep; expands the base. No removal.
+- **Expansion:** build a base tile on the single empty cell directly in front of
+  the character. Costs water/O2/energy; raises water/O2/energy income and
+  upkeep; expands the base. No removal.
 - **Phenomena:** none, solar storm (water/O2/energy GPS ×0.9), water leak
   (water CPS ×1.5), oxygen loss (oxygen CPS ×1.5), rotten food (one-time food
   loss). One at a time; solar/leaks persist until fixed with energy at the

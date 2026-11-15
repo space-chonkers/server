@@ -88,6 +88,8 @@ export interface GridSize {
 /** `match.ended` is terminal; there is no "ended" phase in state. */
 export type Phase = 'lobby' | 'countdown' | 'playing'
 
+export type Facing = 'north' | 'east' | 'south' | 'west'
+
 export interface PlayerState {
   /** Stable for the life of the match. */
   id: string
@@ -95,6 +97,8 @@ export interface PlayerState {
   slot: number
   /** Canonical nickname; display only. */
   name: string
+  /** Cardinal direction; derived from the last nonzero move. */
+  facing: Facing
   /** Continuous position in grid units. */
   x: number
   y: number
@@ -471,7 +475,7 @@ export type ErrorCode =
   | 'not_host'
   | 'wrong_phase'
   | 'not_on_base'
-  | 'not_adjacent'
+  | 'not_in_front'
   | 'cell_occupied'
   | 'out_of_bounds'
   | 'insufficient_resources'
