@@ -102,18 +102,10 @@ func (c *Client) handleMatchInput(id string, request *protocol.MatchInputRequest
 		c.sendError(id, protocol.CodeInternal, "server tick rate must be finite and positive")
 		return
 	}
-	joined, applied, err := c.matches.ApplyPlayerInput(
+	if _, _, err := c.matches.ApplyPlayerInput(
 		c.id, request, c.cfg.Rules.PlayerSpeed, 1/c.cfg.TickRate,
-	)
-	if err != nil {
+	); err != nil {
 		c.sendProtocolError(id, err)
-		return
-	}
-	if !applied {
-		return
-	}
-	if err := joined.BroadcastFrame(); err != nil {
-		c.log.Error("broadcast match frame", "match", joined.ID(), "error", err)
 	}
 }
 

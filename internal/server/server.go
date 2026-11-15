@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -22,6 +23,9 @@ type Server struct {
 	matches    *match.Manager
 	httpServer *http.Server
 	upgrader   websocket.Upgrader
+	stopFrames chan struct{}
+	framesDone chan struct{}
+	stopOnce   sync.Once
 }
 
 func New(cfg Config, log *slog.Logger) *Server {
@@ -30,10 +34,12 @@ func New(cfg Config, log *slog.Logger) *Server {
 
 func newWithManager(cfg Config, log *slog.Logger, matches *match.Manager) *Server {
 	server := &Server{
-		cfg:     cfg,
-		log:     log,
-		hub:     NewHub(),
-		matches: matches,
+		cfg:        cfg,
+		log:        log,
+		hub:        NewHub(),
+		matches:    matches,
+		stopFrames: make(chan struct{}),
+		framesDone: make(chan struct{}),
 	}
 	server.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -52,7 +58,36 @@ func newWithManager(cfg Config, log *slog.Logger, matches *match.Manager) *Serve
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	server.startFrameLoop()
 	return server
+}
+
+// startFrameLoop publishes lossy match frames at the configured frame rate.
+// One process-wide loop keeps match lifecycle free of background goroutines.
+func (s *Server) startFrameLoop() {
+	interval := time.Duration(float64(time.Second) / s.cfg.FrameRate)
+	go func() {
+		defer close(s.framesDone)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := s.matches.BroadcastFrames(); err != nil {
+					s.log.Error("broadcast match frames", "error", err)
+				}
+			case <-s.stopFrames:
+				return
+			}
+		}
+	}()
+}
+
+// stopFrameLoop stops the frame loop once and waits for it to exit. It is safe
+// to call more than once.
+func (s *Server) stopFrameLoop() {
+	s.stopOnce.Do(func() { close(s.stopFrames) })
+	<-s.framesDone
 }
 
 func matchOptions(cfg Config) match.Options {
@@ -73,6 +108,7 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopFrameLoop()
 	s.hub.CloseAll()
 	s.matches.Close()
 	return s.httpServer.Shutdown(ctx)
