@@ -1,0 +1,113 @@
+{
+  "version": "2026-11-15.2",
+  "regions": [
+    {
+      "id": "hirise-dteed-029716-1980-029426-1980-a02",
+      "file": "hirise-dteed-029716-1980-029426-1980-a02.f32",
+      "sha256": "306da893027e904725183a195fa76a536b14201bc94511ca407d9cd90f4ca716",
+      "columns": 332,
+      "rows": 1589,
+      "spacingMeters": 10.0,
+      "northWestLatitude": 17.961326744511933,
+      "northWestLongitudeEast": 232.4566130319223,
+      "latitudeStepDegrees": 0.0001690390308691026,
+      "longitudeStepDegrees": 0.00017756476179867092,
+      "datum": "mars-2000-areoid",
+      "source": {
+        "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+        "provider": "NASA/JPL/University of Arizona (HiRISE)",
+        "resolutionMeters": 2.0195488956581,
+        "productId": "DTEED_029716_1980_029426_1980_A02"
+      },
+      "provenance": {
+        "sourceFile": "DTEED_029716_1980_029426_1980_A02.IMG",
+        "sourceSha256": "3e40595b71434951188f683e9818e5ee2e818b885d7908d5f9b68b659dc02d8a",
+        "sourceWindow": "whole product",
+        "sourcePixelEdges": "x 916-2589, y 196-8079",
+        "grid": "+proj=eqc +lat_ts=17.827 +lat_0=0 +lon_0=232.486 +R=3389500.0 +units=m +no_defs",
+        "resampling": "GDAL 3.9.3 gdalwarp -r average"
+      }
+    },
+    {
+      "id": "hirise-dteec-007018-1255-007229-1255-a01",
+      "file": "hirise-dteec-007018-1255-007229-1255-a01.f32",
+      "sha256": "09621c531464ab97b86ce94700482a555481a5d8ae751f1a3fabc7cf3a17a7fd",
+      "columns": 155,
+      "rows": 388,
+      "spacingMeters": 10.0,
+      "northWestLatitude": -54.25603514047869,
+      "northWestLongitudeEast": 12.915266353201876,
+      "latitudeStepDegrees": 0.0001690390308691026,
+      "longitudeStepDegrees": 0.00028960059615446135,
+      "datum": "mars-2000-areoid",
+      "source": {
+        "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+        "provider": "NASA/JPL/University of Arizona (HiRISE)",
+        "resolutionMeters": 0.9965914665229,
+        "productId": "DTEEC_007018_1255_007229_1255_A01"
+      },
+      "provenance": {
+        "sourceFile": "DTEEC_007018_1255_007229_1255_A01.IMG",
+        "sourceSha256": "1c779804156685b482422d25daad03431536ca0aa805b0b2b3c2ceaa5347a7a4",
+        "sourceWindow": "1100,2500,3948,6400",
+        "sourcePixelEdges": "x 1101-2814, y 2501-6399",
+        "grid": "+proj=eqc +lat_ts=-54.289 +lat_0=0 +lon_0=12.938 +R=3389500.0 +units=m +no_defs",
+        "resampling": "GDAL 3.9.3 gdalwarp -r average"
+      }
+    },
+    {
+      "id": "hirise-dteec-002387-1985-003798-1985-a01",
+      "file": "hirise-dteec-002387-1985-003798-1985-a01.f32",
+      "sha256": "2067ee2fe9a916939767ac92492657ea3c774ae6c6029a76deb8d82e4fa3315c",
+      "columns": 428,
+      "rows": 1062,
+      "spacingMeters": 10.0,
+      "northWestLatitude": 18.580347675554584,
+      "northWestLongitudeEast": 77.36694554820613,
+      "latitudeStepDegrees": 0.0001690390308691026,
+      "longitudeStepDegrees": 0.00017824099200875092,
+      "datum": "mars-2000-areoid",
+      "source": {
+        "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+        "provider": "NASA/JPL/University of Arizona (HiRISE)",
+        "resolutionMeters": 1.0096476466229,
+        "productId": "DTEEC_002387_1985_003798_1985_A01"
+      },
+      "provenance": {
+        "sourceFile": "DTEEC_002387_1985_003798_1985_A01.IMG",
+        "sourceSha256": "268bd5912f0aa0e0b0be8db9004085c2ace78f559377acad0a47b32878c7ccea",
+        "sourceWindow": "whole product",
+        "sourcePixelEdges": "x 1296-5634, y 486-11034",
+        "grid": "+proj=eqc +lat_ts=18.491 +lat_0=0 +lon_0=77.405 +R=3389500.0 +units=m +no_defs",
+        "resampling": "GDAL 3.9.3 gdalwarp -r average"
+      }
+    },
+    {
+      "id": "hirise-dteec-001918-1735-001984-1735-u01",
+      "file": "hirise-dteec-001918-1735-001984-1735-u01.f32",
+      "sha256": "7f5f02fe34942064a3298868f9788626f00ed029b98db35e50c0a529b35a787d",
+      "columns": 398,
+      "rows": 992,
+      "spacingMeters": 10.0,
+      "northWestLatitude": -6.386041027688392,
+      "northWestLongitudeEast": 283.0382306752915,
+      "latitudeStepDegrees": 0.0001690390308691026,
+      "longitudeStepDegrees": 0.00017012254261188696,
+      "datum": "mars-2000-areoid",
+      "source": {
+        "datasetId": "MRO-M-HIRISE-5-DTM-V1.0",
+        "provider": "NASA/JPL/University of Arizona (HiRISE)",
+        "resolutionMeters": 1.0115995086777,
+        "productId": "DTEEC_001918_1735_001984_1735_U01"
+      },
+      "provenance": {
+        "sourceFile": "DTEEC_001918_1735_001984_1735_U01.IMG",
+        "sourceSha256": "3e2a3be3176284b401a809afd69d8dab632ef839c4e5e79826a1889637f6801a",
+        "sourceWindow": "whole product",
+        "sourcePixelEdges": "x 1191-5159, y 466-10309",
+        "grid": "+proj=eqc +lat_ts=-6.47 +lat_0=0 +lon_0=283.072 +R=3389500.0 +units=m +no_defs",
+        "resampling": "GDAL 3.9.3 gdalwarp -r average"
+      }
+    }
+  ]
+}

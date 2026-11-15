@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/match"
+	"github.com/space-chonkers/server/internal/terrain"
 )
 
 // Version is set at build time with -ldflags "-X ...".
@@ -52,6 +54,22 @@ func newWithManager(cfg Config, log *slog.Logger, matches *match.Manager) *Serve
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /readyz", server.handleReady)
 	mux.HandleFunc("GET "+cfg.WSPath, server.handleWebSocket)
+	marsTerrain, err := terrain.Load()
+	if err != nil {
+		log.Error("Mars terrain catalog unavailable", "error", err)
+	}
+	// Browsers on ALLOWED_ORIGINS (same rule as the WebSocket) may read the
+	// terrain; a plain GET needs no preflight. A nil catalog answers 503.
+	mux.HandleFunc(terrain.Route, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Origin")
+		origin := r.Header.Get("Origin")
+		if origin != "" && slices.ContainsFunc(cfg.AllowedOrigins, func(allowed string) bool {
+			return allowed == "*" || allowed == origin
+		}) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+		marsTerrain.ServeHTTP(w, r)
+	})
 
 	server.httpServer = &http.Server{
 		Addr:              cfg.Addr,
