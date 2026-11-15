@@ -344,7 +344,7 @@ func TestLeaveWhilePlayingKeepsFrozenTeamSize(t *testing.T) {
 		t.Fatalf("leave: %v", err)
 	}
 	state := created.State(1)
-	if state.Phase != protocol.PhasePlaying || state.TeamSize != 2 || len(state.Players) != 1 {
+	if state.Phase != protocol.PhasePlaying || state.TeamSize != 2 || state.PhaseEndsAtMs != 0 || len(state.Players) != 1 {
 		t.Fatalf("state after playing leave = %+v", state)
 	}
 	if state.Players[0].ID != "p_1" || state.HostID != "p_1" {

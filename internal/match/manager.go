@@ -21,7 +21,7 @@ const (
 // WorldGenerator creates the immutable starting world for a match.
 type WorldGenerator func(seed int64, teamSize int, config game.Config) (game.World, error)
 
-// SeedSource returns the seed for one world. It must be safe for concurrent use.
+// SeedSource returns the seed for one world.
 type SeedSource func() (int64, error)
 
 // Options are the manager limits and match-start inputs. Both limits must be

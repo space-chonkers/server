@@ -28,7 +28,7 @@ func (m *Match) State(now int64) protocol.MatchState {
 	if m.phase == protocol.PhaseLobby {
 		return lobbyState(m.id, members, hostID, m.grid, now)
 	}
-	return worldState(m.id, members, hostID, m.world, m.teamSize, m.phase, m.startedAtMs, now)
+	return worldState(m.id, members, hostID, m.world, m.teamSize, m.phase, 0, now)
 }
 
 // start validates the host and phase, generates the world, and freezes the
@@ -48,7 +48,7 @@ func (m *Match) start(
 			protocol.CodeNotInMatch, "player %s is not in match %s", playerID, m.id,
 		)
 	}
-	if m.hostSlot < 0 || m.members[m.hostSlot].PlayerID != playerID {
+	if m.members[m.hostSlot].PlayerID != playerID {
 		return protocol.MatchState{}, protocol.MatchState{}, protocol.Errorf(
 			protocol.CodeNotHost, "player %s is not the host of match %s", playerID, m.id,
 		)
@@ -76,7 +76,6 @@ func (m *Match) start(
 	m.phase = protocol.PhasePlaying
 	m.teamSize = teamSize
 	m.world = world
-	m.startedAtMs = now
 
 	// The countdown is a zero-length transition in M1: both states describe the
 	// same world, and playing follows immediately from the start handler.
@@ -89,7 +88,7 @@ func (m *Match) start(
 	return countdown, playing, nil
 }
 
-// membersLocked returns a copy sorted by slot. The caller holds mu.
+// membersLocked returns a copy in slot order. The caller holds mu.
 func (m *Match) membersLocked() []Member {
 	members := make([]Member, 0, len(m.members))
 	for _, member := range m.members {
@@ -132,29 +131,19 @@ func lobbyState(
 			Slot:         member.Slot,
 			Name:         member.Name,
 			Facing:       protocol.FacingNorth,
-			X:            0,
-			Y:            0,
-			VX:           0,
-			VY:           0,
 			LastInputSeq: -1,
 		})
 	}
 	return protocol.MatchState{
-		MatchID:       matchID,
-		Schema:        protocol.StateSchema,
-		Tick:          0,
-		ServerTimeMs:  now,
-		Phase:         protocol.PhaseLobby,
-		PhaseEndsAtMs: 0,
-		HostID:        hostID,
-		Grid:          grid,
-		BaseCellCount: 0,
-		TeamSize:      len(members),
-		Players:       players,
-		Constructions: []protocol.Construction{},
-		Investigation: []protocol.InvestigationCell{},
-		Resources:     protocol.Resources{},
-		Phenomenon:    protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
+		MatchID:      matchID,
+		Schema:       protocol.StateSchema,
+		ServerTimeMs: now,
+		Phase:        protocol.PhaseLobby,
+		HostID:       hostID,
+		Grid:         grid,
+		TeamSize:     len(members),
+		Players:      players,
+		Phenomenon:   protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
 	}
 }
 
@@ -183,8 +172,6 @@ func worldState(
 			Facing:       protocol.Facing(spawn.Facing),
 			X:            spawn.X,
 			Y:            spawn.Y,
-			VX:           0,
-			VY:           0,
 			LastInputSeq: -1,
 		})
 	}
@@ -222,7 +209,6 @@ func worldState(
 	return protocol.MatchState{
 		MatchID:       matchID,
 		Schema:        protocol.StateSchema,
-		Tick:          0,
 		ServerTimeMs:  now,
 		Phase:         phase,
 		PhaseEndsAtMs: phaseEndsAtMs,
