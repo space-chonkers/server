@@ -1,0 +1,310 @@
+package server
+
+import (
+	"testing"
+
+	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/protocol"
+)
+
+func joinMatch(t *testing.T, conn *websocket.Conn, id string, request protocol.MatchJoinRequest) protocol.MatchJoinResult {
+	t.Helper()
+	writeEnvelope(t, conn, protocol.Envelope{
+		ID:      id,
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, request),
+	})
+	envelope := readEnvelope(t, conn)
+	if envelope.Type != protocol.TypeMatchJoin || envelope.ID != id {
+		t.Fatalf("expected match.join response %q, got id=%q type=%q", id, envelope.ID, envelope.Type)
+	}
+	return decodePayload[protocol.MatchJoinResult](t, envelope)
+}
+
+func quickJoin(t *testing.T, conn *websocket.Conn, id string) protocol.MatchJoinResult {
+	t.Helper()
+	return joinMatch(t, conn, id, protocol.MatchJoinRequest{})
+}
+
+func createMatch(t *testing.T, conn *websocket.Conn, id string) protocol.MatchJoinResult {
+	t.Helper()
+	return joinMatch(t, conn, id, protocol.MatchJoinRequest{Create: boolPtr(true)})
+}
+
+func joinMatchByID(t *testing.T, conn *websocket.Conn, id, matchID string) protocol.MatchJoinResult {
+	t.Helper()
+	return joinMatch(t, conn, id, protocol.MatchJoinRequest{MatchID: &matchID})
+}
+
+func expectState(t *testing.T, conn *websocket.Conn) protocol.MatchState {
+	t.Helper()
+	envelope := readEnvelope(t, conn)
+	if envelope.Type != protocol.TypeMatchState {
+		t.Fatalf("expected match.state, got %q", envelope.Type)
+	}
+	return decodePayload[protocol.MatchState](t, envelope)
+}
+
+func expectStartStates(t *testing.T, conn *websocket.Conn) (protocol.MatchState, protocol.MatchState) {
+	t.Helper()
+	countdown := expectState(t, conn)
+	playing := expectState(t, conn)
+	if countdown.Phase != protocol.PhaseCountdown || playing.Phase != protocol.PhasePlaying {
+		t.Fatalf("start states = %q, %q", countdown.Phase, playing.Phase)
+	}
+	return countdown, playing
+}
+
+func startMatch(t *testing.T, conn *websocket.Conn, id string) (protocol.MatchState, protocol.MatchState) {
+	t.Helper()
+	writeEnvelope(t, conn, protocol.Envelope{ID: id, Type: protocol.TypeMatchStart})
+	envelope := readEnvelope(t, conn)
+	if envelope.Type != protocol.TypeMatchStart || envelope.ID != id {
+		t.Fatalf("expected match.start response %q, got id=%q type=%q", id, envelope.ID, envelope.Type)
+	}
+	_ = decodePayload[protocol.OKPayload](t, envelope)
+	return expectStartStates(t, conn)
+}
+
+func TestMatchJoinCreateJoinAndLeave(t *testing.T) {
+	s := testServer(t)
+	host := dialWS(t, s)
+	readWelcome(t, host)
+	hostHello := hello(t, host, "hello-host", "ana")
+
+	created := createMatch(t, host, "create-1")
+	if created.MatchID == "" || created.State.Phase != protocol.PhaseLobby {
+		t.Fatalf("unexpected create result %+v", created)
+	}
+	if created.State.HostID != hostHello.PlayerID || created.State.TeamSize != 1 {
+		t.Fatalf("unexpected lobby state %+v", created.State)
+	}
+	if len(created.State.Players) != 1 || created.State.Players[0].Name != "ana" {
+		t.Fatalf("unexpected lobby players %+v", created.State.Players)
+	}
+
+	guest := dialWS(t, s)
+	readWelcome(t, guest)
+	guestHello := hello(t, guest, "hello-guest", "bo")
+	joined := joinMatchByID(t, guest, "join-1", created.MatchID)
+	if joined.State.TeamSize != 2 || len(joined.State.Players) != 2 {
+		t.Fatalf("unexpected joined state %+v", joined.State)
+	}
+	if joined.State.HostID != hostHello.PlayerID {
+		t.Fatalf("host = %q", joined.State.HostID)
+	}
+
+	hosted := expectState(t, host)
+	if hosted.TeamSize != 2 || hosted.Players[1].ID != guestHello.PlayerID {
+		t.Fatalf("host did not see the join: %+v", hosted)
+	}
+
+	writeEnvelope(t, guest, protocol.Envelope{ID: "leave-1", Type: protocol.TypeMatchLeave})
+	leaveResponse := readEnvelope(t, guest)
+	if leaveResponse.Type != protocol.TypeMatchLeave || leaveResponse.ID != "leave-1" {
+		t.Fatalf("unexpected leave response %+v", leaveResponse)
+	}
+	_ = decodePayload[protocol.OKPayload](t, leaveResponse)
+
+	afterLeave := expectState(t, host)
+	if afterLeave.TeamSize != 1 || len(afterLeave.Players) != 1 || afterLeave.HostID != hostHello.PlayerID {
+		t.Fatalf("state after leave = %+v", afterLeave)
+	}
+
+	writeEnvelope(t, guest, protocol.Envelope{ID: "leave-2", Type: protocol.TypeMatchLeave})
+	expectError(t, guest, "leave-2", protocol.CodeNotInMatch)
+}
+
+func TestMatchJoinFull(t *testing.T) {
+	s := testServer(t)
+	match, err := s.matches.Create("p_host", "ana", discardSink{})
+	if err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+	for i := 1; i < 4; i++ {
+		playerID := "p_" + string(rune('0'+i))
+		if _, err := s.matches.Join(match.ID(), playerID, playerID, discardSink{}); err != nil {
+			t.Fatalf("join %s: %v", playerID, err)
+		}
+	}
+
+	conn := dialWS(t, s)
+	readWelcome(t, conn)
+	hello(t, conn, "hello-1", "fifth")
+	matchID := match.ID()
+	writeEnvelope(t, conn, protocol.Envelope{
+		ID:      "join-1",
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, protocol.MatchJoinRequest{MatchID: &matchID}),
+	})
+	expectError(t, conn, "join-1", protocol.CodeMatchFull)
+}
+
+func TestMatchStartEmitsFullState(t *testing.T) {
+	s := testServer(t)
+	host := dialWS(t, s)
+	readWelcome(t, host)
+	hostHello := hello(t, host, "hello-host", "ana")
+	created := createMatch(t, host, "create-1")
+
+	guest := dialWS(t, s)
+	readWelcome(t, guest)
+	hello(t, guest, "hello-guest", "bo")
+	joinMatchByID(t, guest, "join-1", created.MatchID)
+	_ = expectState(t, host) // lobby update from the join
+
+	countdown, playing := startMatch(t, host, "start-1")
+	guestCountdown, guestPlaying := expectStartStates(t, guest)
+
+	if countdown.PhaseEndsAtMs != countdown.ServerTimeMs {
+		t.Fatalf("countdown must end immediately: ends=%d now=%d", countdown.PhaseEndsAtMs, countdown.ServerTimeMs)
+	}
+	if guestCountdown.Phase != protocol.PhaseCountdown || guestPlaying.Phase != protocol.PhasePlaying {
+		t.Fatalf("guest phases = %q, %q", guestCountdown.Phase, guestPlaying.Phase)
+	}
+	if playing.Tick != 0 || guestPlaying.Tick != 0 {
+		t.Fatalf("start tick = %d/%d", playing.Tick, guestPlaying.Tick)
+	}
+	if playing.MatchID != created.MatchID || playing.Schema != protocol.StateSchema {
+		t.Fatalf("unexpected identity %+v", playing)
+	}
+	if playing.HostID != hostHello.PlayerID || playing.TeamSize != 2 || playing.BaseCellCount != 9 {
+		t.Fatalf("unexpected start state %+v", playing)
+	}
+	if playing.Grid != (protocol.GridSize{Width: 50, Height: 50}) {
+		t.Fatalf("grid = %+v", playing.Grid)
+	}
+	if len(playing.Players) != 2 || len(playing.Constructions) != 9 || len(playing.Investigation) != 10 {
+		t.Fatalf("start collections players=%d constructions=%d investigation=%d",
+			len(playing.Players), len(playing.Constructions), len(playing.Investigation))
+	}
+	for i, construction := range playing.Constructions {
+		if i > 0 {
+			previous := playing.Constructions[i-1]
+			if previous.CellX > construction.CellX ||
+				(previous.CellX == construction.CellX && previous.CellY >= construction.CellY) {
+				t.Fatalf("constructions not sorted at %d: %+v", i, playing.Constructions)
+			}
+		}
+	}
+	stashes := 0
+	for _, construction := range playing.Constructions {
+		if construction.Kind == protocol.ConstructionStash {
+			stashes++
+		}
+	}
+	if stashes != 1 {
+		t.Fatalf("stash count = %d", stashes)
+	}
+	if playing.Resources.Water.Pool.Current <= 0 || playing.Resources.Water.Pool.Max <= 0 {
+		t.Fatalf("water not initialized: %+v", playing.Resources.Water)
+	}
+	if playing.Phenomenon.Value.PhenomenonType() != protocol.PhenomenonNoneType {
+		t.Fatalf("start phenomenon = %v", playing.Phenomenon.Value)
+	}
+
+	writeEnvelope(t, guest, protocol.Envelope{ID: "start-guest", Type: protocol.TypeMatchStart})
+	expectError(t, guest, "start-guest", protocol.CodeNotHost)
+	writeEnvelope(t, host, protocol.Envelope{ID: "start-again", Type: protocol.TypeMatchStart})
+	expectError(t, host, "start-again", protocol.CodeWrongPhase)
+
+	third := dialWS(t, s)
+	readWelcome(t, third)
+	hello(t, third, "hello-third", "cy")
+	writeEnvelope(t, third, protocol.Envelope{
+		ID:      "join-third",
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, protocol.MatchJoinRequest{MatchID: &created.MatchID}),
+	})
+	expectError(t, third, "join-third", protocol.CodeMatchInProgress)
+}
+
+func TestMatchQuickJoin(t *testing.T) {
+	s := testServer(t)
+	first := dialWS(t, s)
+	readWelcome(t, first)
+	hello(t, first, "hello-first", "ana")
+	created := quickJoin(t, first, "quick-1")
+
+	second := dialWS(t, s)
+	readWelcome(t, second)
+	hello(t, second, "hello-second", "bo")
+	joined := quickJoin(t, second, "quick-2")
+	if joined.MatchID != created.MatchID {
+		t.Fatalf("quickjoin created a second lobby: %q != %q", joined.MatchID, created.MatchID)
+	}
+	_ = expectState(t, first)
+
+	startMatch(t, first, "start-1")
+	_, _ = expectStartStates(t, second)
+
+	third := dialWS(t, s)
+	readWelcome(t, third)
+	hello(t, third, "hello-third", "cy")
+	fresh := quickJoin(t, third, "quick-3")
+	if fresh.MatchID == created.MatchID {
+		t.Fatal("quickjoin joined a started match")
+	}
+	if fresh.State.Phase != protocol.PhaseLobby || fresh.State.TeamSize != 1 {
+		t.Fatalf("unexpected quickjoin state %+v", fresh.State)
+	}
+}
+
+func TestMatchJoinAndStartErrors(t *testing.T) {
+	s := testServer(t)
+	conn := dialWS(t, s)
+	readWelcome(t, conn)
+	hello(t, conn, "hello-1", "ana")
+
+	writeEnvelope(t, conn, protocol.Envelope{ID: "leave-1", Type: protocol.TypeMatchLeave})
+	expectError(t, conn, "leave-1", protocol.CodeNotInMatch)
+	writeEnvelope(t, conn, protocol.Envelope{ID: "start-1", Type: protocol.TypeMatchStart})
+	expectError(t, conn, "start-1", protocol.CodeNotInMatch)
+
+	missing := "NOPE"
+	writeEnvelope(t, conn, protocol.Envelope{
+		ID:      "join-missing",
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, protocol.MatchJoinRequest{MatchID: &missing}),
+	})
+	expectError(t, conn, "join-missing", protocol.CodeMatchNotFound)
+
+	created := createMatch(t, conn, "create-1")
+	writeEnvelope(t, conn, protocol.Envelope{
+		ID:      "join-again",
+		Type:    protocol.TypeMatchJoin,
+		Payload: mustRaw(t, protocol.MatchJoinRequest{MatchID: &created.MatchID}),
+	})
+	expectError(t, conn, "join-again", protocol.CodeAlreadyInMatch)
+}
+
+func TestDisconnectMigratesHost(t *testing.T) {
+	s := testServer(t)
+	host := dialWS(t, s)
+	readWelcome(t, host)
+	hello(t, host, "hello-host", "ana")
+	created := createMatch(t, host, "create-1")
+
+	guest := dialWS(t, s)
+	readWelcome(t, guest)
+	guestHello := hello(t, guest, "hello-guest", "bo")
+	joinMatchByID(t, guest, "join-1", created.MatchID)
+	_ = expectState(t, host)
+
+	if err := host.Close(); err != nil {
+		t.Fatalf("close host: %v", err)
+	}
+
+	migrated := expectState(t, guest)
+	if migrated.HostID != guestHello.PlayerID {
+		t.Fatalf("host = %q, want %q", migrated.HostID, guestHello.PlayerID)
+	}
+	if migrated.TeamSize != 1 || len(migrated.Players) != 1 || migrated.Players[0].ID != guestHello.PlayerID {
+		t.Fatalf("state after host disconnect = %+v", migrated)
+	}
+	if migrated.Phase != protocol.PhaseLobby {
+		t.Fatalf("phase = %q", migrated.Phase)
+	}
+
+	startMatch(t, guest, "start-1")
+}
