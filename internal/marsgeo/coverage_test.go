@@ -10,11 +10,14 @@ import (
 // mapProduct is a 300 x 300 px, 2 m synthetic product (k = 5) large enough for
 // a 500 m map centred on pixel (150, 150). centerLon sets where the product
 // sits; 0 makes the map straddle 0°/360°.
-func mapProduct(centerLon float64) *synthProduct {
-	p := newSynthProduct(300, 300)
+func mapProduct(centerLon float64) *synthProduct { return mapProductSized(centerLon, 300) }
+
+// mapProductSized is an n x n version with pixel (n/2, n/2) at 17°N, centerLon.
+func mapProductSized(centerLon float64, n int) *synthProduct {
+	p := newSynthProduct(n, n)
 	p.CenterLat, p.CenterLon = 17, centerLon
-	p.SampleOffset = 150
-	p.LineOffset = 17*math.Pi/180*p.RadiusKm*1000/p.MapScale + 150 // pixel row 150 at 17°N
+	p.SampleOffset = float64(n / 2)
+	p.LineOffset = 17*math.Pi/180*p.RadiusKm*1000/p.MapScale + float64(n/2)
 	return p
 }
 

@@ -397,7 +397,7 @@ func TestRadiusConstantsHaveOneCallSite(t *testing.T) {
 		b, _ := os.ReadFile(f)
 		src := string(b)
 		counts["clientRadius"] += strings.Count(src, "clientRadius")
-		counts["RadiusMeters*"] += len(regexp.MustCompile(`l\.RadiusMeters[ *]`).FindAllString(src, -1))
+		counts["RadiusMeters*"] += len(regexp.MustCompile(`l\.RadiusMeters\s*[*/]`).FindAllString(src, -1))
 	}
 	// clientRadius: declared once, used in GeographicToLocal (east, north) and
 	// LocalToGeographic (lon, lat). Product radius: used only in newGeoref.
