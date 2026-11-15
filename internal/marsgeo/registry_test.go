@@ -226,3 +226,48 @@ func TestBuildSamplesMatchIndependentComputation(t *testing.T) {
 		t.Fatalf("NW corner %v, independent %v", d.Elevation.SamplesMeters[0], want)
 	}
 }
+
+func TestRegistryRejectsUnsafeNames(t *testing.T) {
+	_, raw := writeSynthRegistry(t, t.TempDir(), mapProduct(232.49))
+	for name, r := range map[string][2]string{
+		"file .":             {`"file":"synthetic.IMG"`, `"file":"."`},
+		"file ..":            {`"file":"synthetic.IMG"`, `"file":".."`},
+		"file with dir":      {`"file":"synthetic.IMG"`, `"file":"a/synthetic.IMG"`},
+		"productId traverse": {`"productId":"DTEED_TEST_A01"`, `"productId":"DTEE/../../x"`},
+		"productId lower":    {`"productId":"DTEED_TEST_A01"`, `"productId":"dteed_test_a01"`},
+	} {
+		mutated := strings.Replace(string(raw), r[0], r[1], 1)
+		if mutated == string(raw) {
+			t.Fatalf("%s: replacement did not apply", name)
+		}
+		if _, err := LoadRegistry([]byte(mutated)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestTerrainCloseReportsErrors(t *testing.T) {
+	dir := t.TempDir()
+	reg, _ := writeSynthRegistry(t, dir, mapProduct(232.49))
+	terr, err := reg.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terr.files[0].Close(); err != nil { // closed behind Terrain's back
+		t.Fatal(err)
+	}
+	if err := terr.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("Close = %v, want an error wrapping os.ErrClosed", err)
+	}
+	if err := terr.Close(); err != nil {
+		t.Fatalf("second Close = %v, want nil", err)
+	}
+
+	ok, err := reg.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.Close(); err != nil {
+		t.Fatalf("clean Close = %v", err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -86,11 +87,11 @@ func LoadRegistry(data []byte) (*Registry, error) {
 
 func (e *Entry) check() error {
 	switch {
-	case !strings.HasPrefix(e.ProductID, "DTEE") || !isPrintableASCII(e.ProductID):
-		return fmt.Errorf("productId %q is not a DTEE* product", e.ProductID)
+	case !validProductID(e.ProductID):
+		return fmt.Errorf("productId %q does not match %s", e.ProductID, productIDPattern)
 	case e.DatasetID != HiRISEDTMDatasetID || e.Provider != HiRISEProvider:
 		return fmt.Errorf("dataset %q / provider %q not supported", e.DatasetID, e.Provider)
-	case e.File == "" || filepath.Base(e.File) != e.File:
+	case e.File == "" || e.File == "." || e.File == ".." || filepath.Base(e.File) != e.File:
 		return fmt.Errorf("file %q must be a bare file name", e.File)
 	case len(e.SHA256) != 64:
 		return fmt.Errorf("sha256 must be 64 hex digits")
@@ -174,13 +175,17 @@ func openEntry(dataDir string, e *Entry) (*Product, *os.File, error) {
 	return prod, f, nil
 }
 
-// Close releases the product files.
+// Close releases the product files and returns every close error, joined.
+// Calling it again is a no-op.
 func (t *Terrain) Close() error {
+	var errs []error
 	for _, f := range t.files {
-		f.Close()
+		if err := f.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	t.files = nil
-	return nil
+	return errors.Join(errs...)
 }
 
 // RegistryVersion identifies the registry content; a change can remap seeds.

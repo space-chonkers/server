@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -15,6 +16,18 @@ const (
 	maxRasterSide  = 1 << 20
 	maxImageOffset = int64(1) << 48
 )
+
+// productIDPattern is the only accepted PRODUCT_ID shape: a HiRISE DTEE*
+// product (equirectangular, elevations above the areoid) made of upper-case
+// letters, digits and underscores. Product IDs name files on disk (prep
+// output, registry entries), so path separators, dots and anything else
+// are rejected here rather than relying on later path checks.
+const productIDPattern = `^DTEE[A-Z0-9_]+$`
+
+var productIDRE = regexp.MustCompile(productIDPattern)
+
+// validProductID reports whether id matches productIDPattern.
+func validProductID(id string) bool { return productIDRE.MatchString(id) }
 
 // HiRISE DTM dataset identifier (label DATA_SET_ID).
 const HiRISEDTMDatasetID = "MRO-M-HIRISE-5-DTM-V1.0"
@@ -332,11 +345,8 @@ func verifyLabel(pl *pdsLabel) (*Label, error) {
 	}
 	lab.ProductID, err = pl.str("PRODUCT_ID")
 	check(err)
-	if err == nil && !strings.HasPrefix(lab.ProductID, "DTEE") {
-		fail("PRODUCT_ID %q is not a DTEE* (equirectangular, areoid) product", lab.ProductID)
-	}
-	if err == nil && !isPrintableASCII(lab.ProductID) {
-		fail("PRODUCT_ID %q is not printable ASCII", lab.ProductID)
+	if err == nil && !validProductID(lab.ProductID) {
+		fail("PRODUCT_ID %q does not match %s (a DTEE* equirectangular, areoid product)", lab.ProductID, productIDPattern)
 	}
 	lab.ProductVersionID, _ = pl.str("PRODUCT_VERSION_ID")
 	lab.SoftwareName, _ = pl.str("SOFTWARE_NAME")
@@ -465,18 +475,6 @@ func joinErrors(errs []error) error {
 		msgs[i] = strings.TrimPrefix(e.Error(), ErrInvalidProduct.Error()+": ")
 	}
 	return fmt.Errorf("%w: %s", ErrInvalidProduct, strings.Join(msgs, "; "))
-}
-
-func isPrintableASCII(s string) bool {
-	if strings.TrimSpace(s) == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] > 0x7e {
-			return false
-		}
-	}
-	return true
 }
 
 // ImageBytes is the byte length of the image the label declares.

@@ -338,3 +338,28 @@ func TestRasterSideLimit(t *testing.T) {
 	p.edit("LINES", fmt.Sprintf("  LINES = %d", 1<<20+1))
 	expectInvalidProduct(t, p)
 }
+
+// TestProductIDMustBeSafe: PRODUCT_ID names files on disk, so only
+// ^DTEE[A-Z0-9_]+$ is accepted.
+func TestProductIDMustBeSafe(t *testing.T) {
+	for _, id := range []string{
+		"DTEE/../../x", "DTEED/A01", `DTEED\A01`, "DTEE..", "DTEED_..", "DTEED_A01/", // separators, traversal
+		"dteed_029716_a01", "DTEEd_A01", // lower case
+		"DTEE", "DTEED A01", "DTEED-A01", "DTEED.A01", "DTEED_A01\t", "DTEÉD_A01", "", // empty suffix, other characters
+		"XDTEED_A01", "DTERD_A01", // wrong prefix
+	} {
+		t.Run(id, func(t *testing.T) {
+			if validProductID(id) {
+				t.Fatalf("validProductID(%q) = true", id)
+			}
+			p := newSynthProduct(4, 4)
+			p.edit("PRODUCT_ID", fmt.Sprintf("PRODUCT_ID                = %q", id))
+			expectInvalidProduct(t, p)
+		})
+	}
+	for _, id := range []string{"DTEED_029716_1980_029426_1980_A02", "DTEEC_002118_1510_003608_1510_A01", "DTEE0"} {
+		if !validProductID(id) {
+			t.Errorf("validProductID(%q) = false", id)
+		}
+	}
+}

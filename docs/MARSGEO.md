@@ -37,6 +37,9 @@ variables because Go folds constant expressions exactly while JavaScript rounds 
 
 - Only HiRISE `DTEE*` products: equirectangular, planetocentric, east-positive longitudes, no rotation, elevations
   above the areoid. `DTER*` (radii) and `DTEP*` (polar stereographic) are rejected.
+- `PRODUCT_ID` must match `^DTEE[A-Z0-9_]+$`, checked in `ParseLabel` and again on registry load. Product IDs name
+  files on disk, so path separators, dots, lower case and anything else are rejected outright. Registry `file` names
+  must be bare names other than `.` and `..`.
 - The binary layout is read from the product's own label, never assumed: `RECORD_TYPE = FIXED_LENGTH`,
   `RECORD_BYTES = LINE_SAMPLES × 4`, `^IMAGE` as a record pointer or `n <BYTES>`, single band, no line
   prefix or suffix, `SCALING_FACTOR = 1`, `OFFSET = 0`. A file shorter than the declared image is rejected, never
@@ -74,7 +77,10 @@ For each corner at local position (E, N), in metres from the map centre:
 **Determinism.** The same seed, registry and raster bytes give bit-identical payload bytes on the same GOARCH,
 `GOAMD64`/`GOARM64` level and Go toolchain. Explicit `float64(...)` conversions stop this package's own multiply-adds
 from being fused. `math.Cos` itself may be fused on arm64 or on amd64 v3, so bit identity across architectures is not
-claimed. Values still agree to well within 1e-6 m.
+claimed. Values still agree to well within 1e-6 m. The golden byte hash is therefore asserted only for amd64 at
+`GOAMD64=v1` (build tags `amd64 && !amd64.v2`). Every other configuration checks the golden values within 1e-6 m and
+skips the hash with a message. On the development machine, v1, v2 and v3 builds happened to give identical bytes; that
+is observed, not guaranteed.
 
 ## 5. Pixel convention (verified; Phase 4A P5 gate)
 
@@ -206,7 +212,7 @@ origin (to within 3e-13 m), and reports 100% valid pixels.
 - Always runs (committed crop): provenance and checksums; every crop pixel valid; the 13 GDAL reference points that
   fall inside the crop match in pixel and float32 bits; `Build` for 4 seeds gives schema-valid payloads with every
   sample inside the crop's VALID range; 6 corners are recomputed independently from raw pixels; the golden payload
-  (values within 1e-6 m on every architecture, byte SHA-256 on amd64 only).
+  (values within 1e-6 m in every build configuration, byte SHA-256 on amd64 `GOAMD64=v1` only).
 - With `MARSGEO_DATA_DIR` set (full product): every `gdallocationinfo` point is reproduced with the same pixel and
   float32 bits (run 2026-11-15, all 33 pass, including the four raster corners, which are `MISSING_CONSTANT`). The
   production registry opens and builds. Pixel statistics: 20,822,672 valid, 8,092,335 `MISSING_CONSTANT`, no other

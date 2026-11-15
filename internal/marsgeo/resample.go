@@ -7,9 +7,12 @@ import (
 )
 
 // KernelSize is k = ceil(cellSize / MAP_SCALE): the number of sub-samples
-// per axis in a corner's averaging footprint. It keeps the sub-sample
-// spacing cellSize/k at or below one source pixel, which the coverage proof
-// relies on. A02 (2.0195 m) gives 5; a 1 m product gives 10.
+// per axis in a corner's averaging footprint, so the spacing cellSize/k is
+// about one source pixel. The coverage proof needs that spacing, measured in
+// pixels on the map, to stay under 2 (stencils are 2 px wide); it is about
+// 1.006 px for A02 because the client sphere and the product projection
+// scale differently, and FootprintRect checks the bound. A02 (2.0195 m)
+// gives 5; a 1 m product gives 10.
 func KernelSize(cellSizeMeters, mapScale float64) int {
 	return int(math.Ceil(cellSizeMeters / mapScale))
 }

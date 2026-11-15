@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 )
@@ -195,8 +194,9 @@ func TestRealCornersMatchIndependentComputation(t *testing.T) {
 }
 
 // Golden values, pinned last (after the P9 GDAL check). The value table is
-// checked on every architecture within 1e-6 m; the byte hash only on amd64,
-// since math.Cos may be FMA-fused elsewhere (docs/MARSGEO.md §4).
+// checked in every build configuration within 1e-6 m; the byte hash only on
+// amd64 at GOAMD64=v1, since math.Cos may be FMA-fused at higher amd64 levels
+// and on other architectures (docs/MARSGEO.md §4).
 const goldenPayloadSHA256AMD64 = "ab33dac3273c44aa9a0510bcb8dcb8d0edd5b0aee09dd9bd6e92dca194671a0d"
 
 func TestRealGoldenPayload(t *testing.T) {
@@ -212,7 +212,7 @@ func TestRealGoldenPayload(t *testing.T) {
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(got)
-		t.Logf("wrote %s; payload sha256 %s (GOARCH %s)", path, hex.EncodeToString(sum[:]), runtime.GOARCH)
+		t.Logf("wrote %s; payload sha256 %s (build %s)", path, hex.EncodeToString(sum[:]), goldenTargetName)
 		return
 	}
 	raw, err := os.ReadFile(path)
@@ -231,8 +231,8 @@ func TestRealGoldenPayload(t *testing.T) {
 			t.Fatalf("sample %d = %v, golden %v", i, d.Elevation.SamplesMeters[i], w)
 		}
 	}
-	if runtime.GOARCH != "amd64" {
-		t.Skipf("payload byte hash is pinned for amd64 only (GOARCH %s); values matched within 1e-6 m", runtime.GOARCH)
+	if !goldenByteHashTarget {
+		t.Skipf("payload byte hash is pinned for amd64 GOAMD64=v1 only (this build: %s); values matched within 1e-6 m", goldenTargetName)
 	}
 	sum := sha256.Sum256(got)
 	if h := hex.EncodeToString(sum[:]); h != goldenPayloadSHA256AMD64 {
