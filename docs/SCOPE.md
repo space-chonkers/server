@@ -1,0 +1,225 @@
+# Scope — cooperative grid survival MVP
+
+**Status:** proposed for M0 sign-off
+**Related:** [PROTOCOL.md](./PROTOCOL.md) · [INTEGRATION.md](./INTEGRATION.md) · [TICKETS-M1.md](./TICKETS-M1.md) · [protocol/v1.schema.json](./protocol/v1.schema.json) · [protocol/v1.ts](./protocol/v1.ts)
+
+## 1. Goal
+
+Ship a 1–4 player cooperative game on a 50×50 grid. Players start in a random
+3×3 base, collect four resources from a shared stash, spend them to expand the
+base, and cover all N investigation cells before **any** resource pool reaches
+zero.
+
+The server owns the grid, base footprint, resources, phenomena, build/collect
+validation, and win/loss. The client owns rendering, movement interpolation,
+build/collect/fix UI, and art. There is no combat and no units. Resources, base
+cells, and the outcome are shared; there is no individual score.
+
+### Game loop at a glance
+
+- **Move** continuously inside the base; players overlap and constructions do
+  not block.
+- **Collect** all four resources at the stash; overflow beyond pool capacity is
+  lost.
+- **Build** a base tile from a base cell onto an orthogonal empty neighbor;
+  costs water/O2/energy and raises water/O2/energy income and upkeep.
+- **Survive** server phenomena: solar storm (GPS down), water leak/oxygen loss
+  (CPS up), or rotten food (one-time food loss). Fix the persistent ones at the
+  stash with energy.
+- **Win** by covering all N investigation cells with the base; **lose** when any
+  resource pool hits zero.
+
+## 2. Rules
+
+### Grid, base, movement
+
+- Grid: 50×50 cells, `cellX/cellY` in `0..49`. Positions are continuous in grid
+  units; cell `(x,y)` spans `[x,x+1) × [y,y+1)`.
+- Base = union of cells occupied by `base_tile` or the unique `stash`.
+- Start: random 3×3 base fully inside the grid; stash at its center; the other
+  8 cells are `base_tile`. `baseCellCount = 9`.
+- Constructions are 1×1, no rotation, no removal. The stash is pre-placed and
+  cannot be built or removed.
+- Players spawn at the four cardinal edge cells (N/E/S/W by slot), may overlap,
+  and move continuously **only inside the base**. Constructions are
+  non-blocking.
+- Build: player stands on a base cell; target must be orthogonally adjacent to
+  the player's cell, in bounds, empty, and affordable. Instant; no refund.
+- No combat, projectiles, NPCs, or worker units.
+
+### Resources
+
+Four resources: `water`, `oxygen`, `energy`, `food`. Each has a **pool** and a
+**stash**:
+
+| Container | Fields | Scaling |
+| --- | --- | --- |
+| Pool | `current`, `max` | `max = POOL_PER_PLAYER × P` |
+| Stash | `current`, `max`, `gps` | `max = STASH_BASE + STASH_PER_TILE × B + STASH_PER_PLAYER × P` |
+
+`B` is `baseCellCount` including the stash. `P` is the **starting team size**,
+frozen at `match.start`; a player leaving does not change caps or upkeep. At
+start, `pool.current = pool.max × STARTING_POOL_FRACTION` and `stash.current = 0`.
+
+### Economy
+
+For each resource, per tick (`dt = 1/30 s`):
+
+```text
+stash.current = min(stash.current + gps * dt, stash.max)   // overflow lost
+pool.current  = max(pool.current - cps * dt, 0)
+if any pool.current <= 0 and no win -> loss
+```
+
+Base rates before phenomena:
+
+| Resource | GPS | CPS |
+| --- | --- | --- |
+| water | `GPS_PER_TILE.water × B` | `CPS_PER_PLAYER.water × P + CPS_PER_TILE.water × B` |
+| oxygen | `GPS_PER_TILE.oxygen × B` | `CPS_PER_PLAYER.oxygen × P + CPS_PER_TILE.oxygen × B` |
+| energy | `GPS_PER_TILE.energy × B` | `CPS_PER_PLAYER.energy × P + CPS_PER_TILE.energy × B` |
+| food | `FOOD_GPS_PER_PLAYER × P` | `FOOD_CPS_PER_PLAYER × P` |
+
+The state exposes **effective** `gps`/`cps` after active phenomena. Tick order:
+movement/actions → win/loss check → phenomenon roll/instant → economy → loss
+check. Config MUST keep `cps > gps` for every supported team size and base size;
+this is the survival pressure.
+
+### Build and collect
+
+- Base tile cost: `BUILD_COST.water`, `BUILD_COST.oxygen`,
+  `BUILD_COST.energy` (no food), paid once from the pool. If any is short, the
+  build is rejected.
+- A build adds one base cell, then:
+  - increases water/oxygen/energy GPS and CPS by their per-tile constants;
+  - increases all stash caps through `B`;
+  - does **not** change pool caps or food GPS/CPS.
+- Collect requires standing on the stash cell. It moves all four resources
+  together: `moved = min(stash.current, pool.max - pool.current)`; overflow is
+  lost. The response reports `collected` and `lost` per resource.
+
+### Phenomena
+
+At most one phenomenon is active. The server rolls only while playing and only
+when `type == 0`; a roll happens every `PHENOMENON_ROLL_SECONDS`. Weights are
+config (default uniform across 0–4). Every roll—including a 0 roll—and every
+event resolution resets the timer.
+
+| Type | Name | Effect | Fix | Duration |
+| --- | --- | --- | --- | --- |
+| 0 | none | No effect | — | — |
+| 1 | solar storm | Water/oxygen/energy GPS × `SOLAR_GPS_MULTIPLIER` (0.9) | Energy | Until fixed |
+| 2 | water leak | Water CPS × `WATER_LEAK_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
+| 3 | oxygen loss | Oxygen CPS × `OXYGEN_LOSS_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
+| 4 | rotten food | Food pool − `ROTTEN_FOOD_PER_PLAYER × P`, once | — | One tick |
+
+- Solar storm affects stash generation only; leak/loss affect the pool only.
+- Rotten food subtracts from the pool once, then the active type returns to 0.
+- Fix: stand on the stash cell, pay `fixCostEnergy`, clear immediately. Fixing
+  before the economy tick prevents that tick's effect. Insufficient energy is an
+  error; spending down to 0 can cause a loss.
+- Active phenomena are in every state/frame; start/resolve/instant transitions
+  are also sent as reliable `match.phenomenon` events.
+- Events never overlap and never run during lobby/countdown.
+
+### Win, loss, lifecycle
+
+- **Win:** base covers every investigation cell. A build that completes the
+  last goal wins even if its cost leaves a pool at 0.
+- **Loss:** any pool `current <= 0` after actions/economy. Rotten food, leaks,
+  upkeep, build costs, and fix costs can all cause it.
+- **Abandon:** no players remain.
+- 1–4 players; host starts; lobby-only join; leave continues; host migrates.
+- No timer; no reconnect; no persistence; restart loses the match.
+
+## 3. In and out of scope
+
+**P0:** handshake, lobby/start, random map + stash + goals, base-only movement,
+four-resource economy, build/collect/fix, phenomena, win/loss, full state +
+build/phenomenon events + frames, bot, tests, Compose.
+
+**P1:** leaderboard (fastest clear), debug endpoint, rate limiting, resync
+request.
+
+**P2 / post-jam:** combat/units, removal/undo, multi-cell/rotation, more
+construction types, matchmaking/party, RabbitMQ, Redis, federation, Nomad, auth,
+spectators, replay, persistence, horizontal scaling.
+
+## 4. Architecture
+
+```text
+client ── /ws JSON ──> internal/server ──> internal/match ──> internal/game
+                         transport         lifecycle/actions    grid/economy
+                         queues            fan-out              phenomena/rules
+```
+
+| Package | Owns |
+| --- | --- |
+| `internal/protocol` | Wire types, decode/validate, error codes |
+| `internal/game` | Grid, map, base, resources, phenomena, movement, win/loss |
+| `internal/match` | Manager, membership, phases, tick, action dispatch, fan-out |
+| `internal/server` | HTTP/WS, handshake, per-client priority queues, shutdown |
+| `cmd/bot` | Reference client / smoke test |
+| `internal/bus`, `internal/leaderboard` | P1 seams only |
+
+## 5. Milestones
+
+| Milestone | Deliverable | Exit |
+| --- | --- | --- |
+| **M0** | Contract + schema sign-off | Client can implement connect/lobby/move/build/collect/fix |
+| **M1** | Grid, economy, phenomena, actions, frames, bot | Two bots play a full loop; `go test -race` green |
+| **M2** | Countdown, win/loss, client integration, leaderboard P1 | Full win and loss from the real client |
+| **M3** | Compose deploy, demo, handoff | Deployed demo; code frozen |
+
+M1 is ~22 person-hours; see [TICKETS-M1.md](./TICKETS-M1.md). If solo, cut P1,
+bot goal-seeking, and reduce N.
+
+## 6. Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Economy is unwinnable/unfun | All constants config; bot-driven tuning; N=10; `cps > gps` validation |
+| Phenomena feel unfair | One at a time; fixed costs visible; roll timer resets; tune weights |
+| Base-only movement clamp bugs | Axis-separated clamp + unit tests |
+| State desync on build/phenomenon | Reliable control events + full state at start; no removal |
+| Client build UI targets wrong cell | Server validates; UI only offers orthogonal neighbors of current cell |
+| Scope creep (combat/units/removal) | Hard P2 cut line |
+
+## 7. Placeholder constants
+
+All are server config; the client reads current values from state/rules. These
+are **not balanced** for the jam yet.
+
+| Constant | Water | Oxygen | Energy | Food |
+| --- | --- | --- | --- | --- |
+| `POOL_PER_PLAYER` | 50 | 50 | 50 | 40 |
+| `STASH_BASE` | 10 | 10 | 10 | 10 |
+| `STASH_PER_TILE` | 1 | 1 | 1 | 1 |
+| `STASH_PER_PLAYER` | 5 | 5 | 5 | 5 |
+| `GPS_PER_TILE` | 0.04 | 0.04 | 0.03 | — |
+| `FOOD_GPS_PER_PLAYER` | — | — | — | 0.15 |
+| `CPS_PER_PLAYER` | 0.30 | 0.30 | 0.25 | 0.30 |
+| `CPS_PER_TILE` | 0.08 | 0.08 | 0.06 | — |
+| `BUILD_COST` | 5 | 5 | 5 | 0 |
+
+Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_MULTIPLIER=0.9`,
+`WATER_LEAK_CPS_MULTIPLIER=1.5`, `OXYGEN_LOSS_CPS_MULTIPLIER=1.5`,
+`ROTTEN_FOOD_PER_PLAYER=5`, `FIX_COST_ENERGY={solar:20, water:10, oxygen:10}`,
+`PHENOMENON_ROLL_SECONDS=30`, uniform event weights, `INVESTIGATION_COUNT=10`,
+`PLAYER_SPEED=4`, `TICK_RATE=30`, `FRAME_RATE=15`.
+
+## 8. Definition of done
+
+- [ ] 1–4 players spawn in the 3×3 base, move only inside it, and overlap.
+- [ ] Collect moves all four resources and reports overflow lost.
+- [ ] Build costs water/O2/energy, adds one base cell, updates GPS/CPS/caps.
+- [ ] Any pool at 0 ends the match in a loss.
+- [ ] All investigation cells covered ends the match in a win.
+- [ ] Solar/water/oxygen phenomena persist until fixed; rotten food is instant.
+- [ ] Fixing requires the stash cell and energy, and clears before the tick.
+- [ ] Full state at start + reliable build/phenomenon events reconstruct the map.
+- [ ] A slow client cannot block the tick.
+- [ ] `go test -race ./...` green; bot runs 60 s; Compose serves `/ws`.
+
+**Demo:** start; collect; build toward goals; show one phenomenon and fix it; show
+pool drain and a loss; restart and win.

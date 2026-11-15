@@ -5,9 +5,44 @@ service, one WebSocket endpoint, JSON request/response envelopes, health
 checks, and graceful shutdown. Docker is the only local prerequisite; Go does
 not need to be installed on the host.
 
+The MVP target is a **1–4 player cooperative 50×50 grid survival builder**:
+players spawn in a 3×3 base, manage shared water/oxygen/energy/food pools, expand
+the base to cover N investigation cells, and respond to server-controlled
+phenomena before any resource pool drains.
+
 Event bus, federation, leaderboard, and autoscaling from the architecture
 sketch are not implemented yet. The hub is in-memory and can be replaced later
 without changing the transport contract.
+
+## Game loop at a glance
+
+1–4 players share a 50×50 grid. A random 3×3 base starts with a stash at its
+center; players spawn on the base edge and move only inside the base.
+
+- **Resources:** water, oxygen, energy, food. Each has a pool (spendable,
+  capacity scales with starting team size) and a stash (passively generated,
+  capacity scales with base cells and team size).
+- **Survival:** GPS fills the stash; CPS drains the pool. CPS > GPS by design,
+  so the team always loses ground. Collect at the stash to refill the pool.
+- **Expansion:** build a base tile by standing on the base and targeting an
+  orthogonal empty neighbor. Costs water/O2/energy; raises water/O2/energy
+  income and upkeep; expands the base. No removal.
+- **Phenomena:** none, solar storm (water/O2/energy GPS ×0.9), water leak
+  (water CPS ×1.5), oxygen loss (oxygen CPS ×1.5), rotten food (one-time food
+  loss). One at a time; solar/leaks persist until fixed with energy at the
+  stash; rotten food is instant.
+- **Win/loss:** cover all N investigation cells (default 10) with the base to
+  win; lose when any resource pool hits 0. Shared outcome; no combat or units.
+
+## Docs
+
+- [Co-op grid MVP scope and 2-day plan](docs/SCOPE.md) — what ships now vs. later.
+- [WebSocket protocol v1](docs/PROTOCOL.md) — the client contract and message map.
+- [Client integration guide](docs/INTEGRATION.md) — schemas, validation, handoff checklist.
+- [JSON Schema](docs/protocol/v1.schema.json) — machine-readable message schemas.
+- [M1 ticket board](docs/TICKETS-M1.md) — parallelizable implementation tasks.
+- [Protocol TypeScript types](docs/protocol/v1.ts) — client-side reference types.
+- [Architecture handoff](docs/DESCRIPTION.md) — sketch-to-code mapping.
 
 ## Layout
 
@@ -31,6 +66,8 @@ docker compose up --build
 - Server: <http://localhost:8080>
 - WebSocket: `ws://localhost:8080/ws`
 - Health: <http://localhost:8080/healthz>
+- Readiness: <http://localhost:8080/readyz>
+- Debug matches (P1, disabled by default): `/debug/matches`
 
 Stop it with `docker compose down`. The client container is not wired in this
 repo yet; connect a client to the WebSocket URL when ready.
@@ -47,6 +84,9 @@ client can correlate them. Server-initiated events omit `id`.
 ```json
 { "id": "req-1", "type": "pong", "payload": { "time": "2026-11-14T18:00:00Z" } }
 ```
+
+The table below describes the baseline scaffold. The game contract that replaces
+these debug types in M1 is [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 Built-in request types:
 

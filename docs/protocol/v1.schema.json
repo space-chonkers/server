@@ -1,0 +1,930 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/space-chonkers/server/docs/protocol/v1.schema.json",
+  "title": "jam-server protocol v1",
+  "description": "Machine-readable schemas for the jam-server WebSocket protocol v1. Validate client requests with #/$defs/ClientRequest and server messages with #/$defs/ServerMessage. The root oneOf accepts either direction. Objects are strict for v1; additive fields update this schema.",
+  "$defs": {
+    "ResourceKey": {
+      "type": "string",
+      "enum": ["water", "oxygen", "energy", "food"]
+    },
+    "ResourceAmounts": {
+      "type": "object",
+      "required": ["water", "oxygen", "energy", "food"],
+      "properties": {
+        "water": { "type": "number", "minimum": 0 },
+        "oxygen": { "type": "number", "minimum": 0 },
+        "energy": { "type": "number", "minimum": 0 },
+        "food": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ResourcePool": {
+      "type": "object",
+      "required": ["current", "max"],
+      "properties": {
+        "current": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ResourceStash": {
+      "type": "object",
+      "required": ["current", "max", "gps"],
+      "properties": {
+        "current": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 },
+        "gps": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ResourceState": {
+      "type": "object",
+      "required": ["pool", "stash", "cps"],
+      "properties": {
+        "pool": { "$ref": "#/$defs/ResourcePool" },
+        "stash": { "$ref": "#/$defs/ResourceStash" },
+        "cps": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Resources": {
+      "type": "object",
+      "required": ["water", "oxygen", "energy", "food"],
+      "properties": {
+        "water": { "$ref": "#/$defs/ResourceState" },
+        "oxygen": { "$ref": "#/$defs/ResourceState" },
+        "energy": { "$ref": "#/$defs/ResourceState" },
+        "food": { "$ref": "#/$defs/ResourceState" }
+      },
+      "additionalProperties": false
+    },
+    "GridSize": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Vec2": {
+      "type": "object",
+      "description": "Movement vector. The server clamps length to 1; magnitude scales speed.",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "PlayerState": {
+      "type": "object",
+      "required": ["id", "slot", "name", "x", "y", "vx", "vy", "lastInputSeq"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "slot": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "vx": { "type": "number" },
+        "vy": { "type": "number" },
+        "lastInputSeq": { "type": "integer", "minimum": -1 }
+      },
+      "additionalProperties": false
+    },
+    "ConstructionKind": {
+      "type": "string",
+      "enum": ["base_tile", "stash"]
+    },
+    "Construction": {
+      "type": "object",
+      "required": ["id", "kind", "cellX", "cellY"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/ConstructionKind" },
+        "cellX": { "type": "integer", "minimum": 0 },
+        "cellY": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "InvestigationCell": {
+      "type": "object",
+      "required": ["cellX", "cellY"],
+      "properties": {
+        "cellX": { "type": "integer", "minimum": 0 },
+        "cellY": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonNone": {
+      "type": "object",
+      "required": ["type", "startedAtMs", "fixCostEnergy", "effects"],
+      "properties": {
+        "type": { "const": 0 },
+        "startedAtMs": { "const": 0 },
+        "fixCostEnergy": { "const": 0 },
+        "effects": { "type": "object", "additionalProperties": false }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonSolar": {
+      "type": "object",
+      "required": ["type", "startedAtMs", "fixCostEnergy", "effects"],
+      "properties": {
+        "type": { "const": 1 },
+        "startedAtMs": { "type": "integer" },
+        "fixCostEnergy": { "type": "number", "minimum": 0 },
+        "effects": {
+          "type": "object",
+          "required": ["gpsMultiplier", "resources"],
+          "properties": {
+            "gpsMultiplier": { "type": "number", "minimum": 0, "maximum": 1 },
+            "resources": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": { "type": "string", "enum": ["water", "oxygen", "energy"] }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonWaterLeak": {
+      "type": "object",
+      "required": ["type", "startedAtMs", "fixCostEnergy", "effects"],
+      "properties": {
+        "type": { "const": 2 },
+        "startedAtMs": { "type": "integer" },
+        "fixCostEnergy": { "type": "number", "minimum": 0 },
+        "effects": {
+          "type": "object",
+          "required": ["cpsMultiplier", "resource"],
+          "properties": {
+            "cpsMultiplier": { "type": "number", "minimum": 0 },
+            "resource": { "const": "water" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonOxygenLoss": {
+      "type": "object",
+      "required": ["type", "startedAtMs", "fixCostEnergy", "effects"],
+      "properties": {
+        "type": { "const": 3 },
+        "startedAtMs": { "type": "integer" },
+        "fixCostEnergy": { "type": "number", "minimum": 0 },
+        "effects": {
+          "type": "object",
+          "required": ["cpsMultiplier", "resource"],
+          "properties": {
+            "cpsMultiplier": { "type": "number", "minimum": 0 },
+            "resource": { "const": "oxygen" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonRottenFood": {
+      "type": "object",
+      "required": ["type", "startedAtMs", "fixCostEnergy", "effects"],
+      "properties": {
+        "type": { "const": 4 },
+        "startedAtMs": { "type": "integer" },
+        "fixCostEnergy": { "const": 0 },
+        "effects": {
+          "type": "object",
+          "required": ["foodLoss"],
+          "properties": {
+            "foodLoss": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ActivePhenomenon": {
+      "oneOf": [
+        { "$ref": "#/$defs/PhenomenonNone" },
+        { "$ref": "#/$defs/PhenomenonSolar" },
+        { "$ref": "#/$defs/PhenomenonWaterLeak" },
+        { "$ref": "#/$defs/PhenomenonOxygenLoss" }
+      ]
+    },
+    "EventPhenomenon": {
+      "oneOf": [
+        { "$ref": "#/$defs/ActivePhenomenon" },
+        { "$ref": "#/$defs/PhenomenonRottenFood" }
+      ]
+    },
+    "MatchState": {
+      "type": "object",
+      "required": [
+        "matchId",
+        "schema",
+        "tick",
+        "serverTimeMs",
+        "phase",
+        "phaseEndsAtMs",
+        "hostId",
+        "grid",
+        "baseCellCount",
+        "teamSize",
+        "players",
+        "constructions",
+        "investigation",
+        "resources",
+        "phenomenon"
+      ],
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1 },
+        "schema": { "const": 1 },
+        "tick": { "type": "integer", "minimum": 0 },
+        "serverTimeMs": { "type": "integer" },
+        "phase": { "type": "string", "enum": ["lobby", "countdown", "playing"] },
+        "phaseEndsAtMs": { "type": "integer", "minimum": 0 },
+        "hostId": { "type": "string", "minLength": 1 },
+        "grid": { "$ref": "#/$defs/GridSize" },
+        "baseCellCount": { "type": "integer", "minimum": 0 },
+        "teamSize": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "players": { "type": "array", "items": { "$ref": "#/$defs/PlayerState" } },
+        "constructions": { "type": "array", "items": { "$ref": "#/$defs/Construction" } },
+        "investigation": { "type": "array", "items": { "$ref": "#/$defs/InvestigationCell" } },
+        "resources": { "$ref": "#/$defs/Resources" },
+        "phenomenon": { "$ref": "#/$defs/ActivePhenomenon" }
+      },
+      "additionalProperties": false
+    },
+    "MatchFrame": {
+      "type": "object",
+      "required": ["matchId", "tick", "serverTimeMs", "hostId", "baseCellCount", "teamSize", "players", "resources", "phenomenon"],
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1 },
+        "tick": { "type": "integer", "minimum": 0 },
+        "serverTimeMs": { "type": "integer" },
+        "hostId": { "type": "string", "minLength": 1 },
+        "baseCellCount": { "type": "integer", "minimum": 0 },
+        "teamSize": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "players": { "type": "array", "items": { "$ref": "#/$defs/PlayerState" } },
+        "resources": { "$ref": "#/$defs/Resources" },
+        "phenomenon": { "$ref": "#/$defs/ActivePhenomenon" }
+      },
+      "additionalProperties": false
+    },
+    "MatchBuild": {
+      "type": "object",
+      "required": ["matchId", "construction", "resources"],
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1 },
+        "construction": { "$ref": "#/$defs/Construction" },
+        "resources": { "$ref": "#/$defs/Resources" }
+      },
+      "additionalProperties": false
+    },
+    "MatchPhenomenon": {
+      "type": "object",
+      "required": ["matchId", "action", "phenomenon"],
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "enum": ["started", "resolved", "instant"] },
+        "phenomenon": { "$ref": "#/$defs/EventPhenomenon" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "started" } }, "required": ["action"] },
+          "then": {
+            "properties": {
+              "phenomenon": {
+                "oneOf": [
+                  { "$ref": "#/$defs/PhenomenonSolar" },
+                  { "$ref": "#/$defs/PhenomenonWaterLeak" },
+                  { "$ref": "#/$defs/PhenomenonOxygenLoss" }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "resolved" } }, "required": ["action"] },
+          "then": { "properties": { "phenomenon": { "$ref": "#/$defs/PhenomenonNone" } } }
+        },
+        {
+          "if": { "properties": { "action": { "const": "instant" } }, "required": ["action"] },
+          "then": { "properties": { "phenomenon": { "$ref": "#/$defs/PhenomenonRottenFood" } } }
+        }
+      ]
+    },
+    "MatchStats": {
+      "type": "object",
+      "required": ["elapsedMs", "baseCells", "investigationCovered", "investigationTotal", "remaining"],
+      "properties": {
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "baseCells": { "type": "integer", "minimum": 0 },
+        "investigationCovered": { "type": "integer", "minimum": 0 },
+        "investigationTotal": { "type": "integer", "minimum": 0 },
+        "remaining": { "$ref": "#/$defs/ResourceAmounts" },
+        "depletedResource": { "$ref": "#/$defs/ResourceKey" }
+      },
+      "additionalProperties": false
+    },
+    "MatchEnded": {
+      "type": "object",
+      "required": ["matchId", "endedAtMs", "outcome", "reason", "stats"],
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1 },
+        "endedAtMs": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["win", "loss", "abandoned"] },
+        "reason": { "type": "string", "enum": ["all_investigated", "resource_depleted", "abandoned"] },
+        "stats": { "$ref": "#/$defs/MatchStats" }
+      },
+      "additionalProperties": false
+    },
+    "BuildCost": {
+      "type": "object",
+      "required": ["water", "oxygen", "energy", "food"],
+      "properties": {
+        "water": { "type": "number", "minimum": 0 },
+        "oxygen": { "type": "number", "minimum": 0 },
+        "energy": { "type": "number", "minimum": 0 },
+        "food": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Rules": {
+      "type": "object",
+      "required": ["grid", "investigationCount", "buildCost", "playerSpeed", "phenomenonRollSeconds"],
+      "properties": {
+        "grid": { "$ref": "#/$defs/GridSize" },
+        "investigationCount": { "type": "integer", "minimum": 1 },
+        "buildCost": { "$ref": "#/$defs/BuildCost" },
+        "playerSpeed": { "type": "number", "exclusiveMinimum": 0 },
+        "phenomenonRollSeconds": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Limits": {
+      "type": "object",
+      "required": ["maxMessageBytes", "maxPlayersPerMatch", "maxNicknameLength", "maxMatches"],
+      "properties": {
+        "maxMessageBytes": { "type": "integer", "minimum": 1 },
+        "maxPlayersPerMatch": { "type": "integer", "minimum": 1 },
+        "maxNicknameLength": { "type": "integer", "minimum": 1 },
+        "maxMatches": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Welcome": {
+      "type": "object",
+      "required": ["playerId", "protocolVersion", "serverTimeMs", "tickRate", "frameRate", "limits", "rules"],
+      "properties": {
+        "playerId": { "type": "string", "minLength": 1 },
+        "protocolVersion": { "const": 1 },
+        "serverTimeMs": { "type": "integer" },
+        "tickRate": { "type": "number", "exclusiveMinimum": 0 },
+        "frameRate": { "type": "number", "exclusiveMinimum": 0 },
+        "limits": { "$ref": "#/$defs/Limits" },
+        "rules": { "$ref": "#/$defs/Rules" }
+      },
+      "additionalProperties": false
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "invalid_json",
+        "invalid_payload",
+        "unsupported_type",
+        "protocol_version_mismatch",
+        "not_identified",
+        "already_identified",
+        "already_in_match",
+        "not_in_match",
+        "match_not_found",
+        "match_full",
+        "match_in_progress",
+        "not_host",
+        "wrong_phase",
+        "not_on_base",
+        "not_adjacent",
+        "cell_occupied",
+        "out_of_bounds",
+        "insufficient_resources",
+        "insufficient_energy",
+        "not_at_stash",
+        "no_phenomenon",
+        "match_over",
+        "invalid_cell",
+        "server_full",
+        "rate_limited",
+        "internal"
+      ]
+    },
+    "ErrorPayload": {
+      "type": "object",
+      "properties": {
+        "message": { "type": "string" },
+        "missing": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ResourceKey" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorMessage": {
+      "type": "object",
+      "required": ["type", "error"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "error" },
+        "error": { "$ref": "#/$defs/ErrorCode" },
+        "payload": { "$ref": "#/$defs/ErrorPayload" }
+      },
+      "additionalProperties": false
+    },
+    "PingRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "ping" },
+        "payload": {
+          "type": "object",
+          "properties": { "clientTimeMs": { "type": "number" } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PlayerHelloRequest": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "player.hello" },
+        "payload": {
+          "type": "object",
+          "required": ["protocolVersion", "nickname"],
+          "properties": {
+            "protocolVersion": { "const": 1 },
+            "nickname": { "type": "string", "minLength": 1, "maxLength": 16 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchJoinRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.join" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "matchId": { "type": "string", "minLength": 1 },
+            "create": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchLeaveRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.leave" }
+      },
+      "additionalProperties": false
+    },
+    "MatchStartRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.start" }
+      },
+      "additionalProperties": false
+    },
+    "MatchInputRequest": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.input" },
+        "payload": {
+          "type": "object",
+          "required": ["seq"],
+          "properties": {
+            "seq": { "type": "integer", "minimum": 0 },
+            "move": { "$ref": "#/$defs/Vec2" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "StashCollectRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "stash.collect" }
+      },
+      "additionalProperties": false
+    },
+    "BaseBuildRequest": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "base.build" },
+        "payload": {
+          "type": "object",
+          "required": ["cellX", "cellY"],
+          "properties": {
+            "cellX": { "type": "integer", "minimum": 0 },
+            "cellY": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonFixRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "phenomenon.fix" }
+      },
+      "additionalProperties": false
+    },
+    "PongResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "pong" },
+        "payload": {
+          "type": "object",
+          "required": ["serverTimeMs", "tick"],
+          "properties": {
+            "clientTimeMs": { "type": "number" },
+            "serverTimeMs": { "type": "integer" },
+            "tick": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PlayerHelloResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "player.hello" },
+        "payload": {
+          "type": "object",
+          "required": ["playerId", "nickname"],
+          "properties": {
+            "playerId": { "type": "string", "minLength": 1 },
+            "nickname": { "type": "string", "minLength": 1, "maxLength": 16 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchJoinResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.join" },
+        "payload": {
+          "type": "object",
+          "required": ["matchId", "state"],
+          "properties": {
+            "matchId": { "type": "string", "minLength": 1 },
+            "state": { "$ref": "#/$defs/MatchState" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchLeaveResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.leave" },
+        "payload": {
+          "type": "object",
+          "required": ["ok"],
+          "properties": { "ok": { "const": true } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchStartResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "match.start" },
+        "payload": {
+          "type": "object",
+          "required": ["ok"],
+          "properties": { "ok": { "const": true } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "StashCollectResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "stash.collect" },
+        "payload": {
+          "type": "object",
+          "required": ["collected", "lost", "resources"],
+          "properties": {
+            "collected": { "$ref": "#/$defs/ResourceAmounts" },
+            "lost": { "$ref": "#/$defs/ResourceAmounts" },
+            "resources": { "$ref": "#/$defs/Resources" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "BaseBuildResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "base.build" },
+        "payload": {
+          "type": "object",
+          "required": ["construction", "resources"],
+          "properties": {
+            "construction": { "$ref": "#/$defs/Construction" },
+            "resources": { "$ref": "#/$defs/Resources" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhenomenonFixResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "phenomenon.fix" },
+        "payload": {
+          "type": "object",
+          "required": ["phenomenon", "resources"],
+          "properties": {
+            "phenomenon": { "$ref": "#/$defs/ActivePhenomenon" },
+            "resources": { "$ref": "#/$defs/Resources" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "WelcomeEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "welcome" },
+        "payload": { "$ref": "#/$defs/Welcome" }
+      },
+      "additionalProperties": false
+    },
+    "MatchStateEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.state" },
+        "payload": { "$ref": "#/$defs/MatchState" }
+      },
+      "additionalProperties": false
+    },
+    "MatchFrameEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.frame" },
+        "payload": { "$ref": "#/$defs/MatchFrame" }
+      },
+      "additionalProperties": false
+    },
+    "MatchBuildEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.build" },
+        "payload": { "$ref": "#/$defs/MatchBuild" }
+      },
+      "additionalProperties": false
+    },
+    "MatchPhenomenonEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.phenomenon" },
+        "payload": { "$ref": "#/$defs/MatchPhenomenon" }
+      },
+      "additionalProperties": false
+    },
+    "MatchEndedEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.ended" },
+        "payload": { "$ref": "#/$defs/MatchEnded" }
+      },
+      "additionalProperties": false
+    },
+    "ClientRequest": {
+      "oneOf": [
+        { "$ref": "#/$defs/PingRequest" },
+        { "$ref": "#/$defs/PlayerHelloRequest" },
+        { "$ref": "#/$defs/MatchJoinRequest" },
+        { "$ref": "#/$defs/MatchLeaveRequest" },
+        { "$ref": "#/$defs/MatchStartRequest" },
+        { "$ref": "#/$defs/MatchInputRequest" },
+        { "$ref": "#/$defs/StashCollectRequest" },
+        { "$ref": "#/$defs/BaseBuildRequest" },
+        { "$ref": "#/$defs/PhenomenonFixRequest" }
+      ]
+    },
+    "ServerMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/WelcomeEvent" },
+        { "$ref": "#/$defs/MatchStateEvent" },
+        { "$ref": "#/$defs/MatchFrameEvent" },
+        { "$ref": "#/$defs/MatchBuildEvent" },
+        { "$ref": "#/$defs/MatchPhenomenonEvent" },
+        { "$ref": "#/$defs/MatchEndedEvent" },
+        { "$ref": "#/$defs/PongResponse" },
+        { "$ref": "#/$defs/PlayerHelloResponse" },
+        { "$ref": "#/$defs/MatchJoinResponse" },
+        { "$ref": "#/$defs/MatchLeaveResponse" },
+        { "$ref": "#/$defs/MatchStartResponse" },
+        { "$ref": "#/$defs/StashCollectResponse" },
+        { "$ref": "#/$defs/BaseBuildResponse" },
+        { "$ref": "#/$defs/PhenomenonFixResponse" },
+        { "$ref": "#/$defs/ErrorMessage" }
+      ]
+    },
+    "LeaderboardEntry": {
+      "type": "object",
+      "required": ["rank", "playerId", "name", "score", "achievedAtMs"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "playerId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "score": { "type": "number" },
+        "achievedAtMs": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "LeaderboardTopRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "leaderboard.top" },
+        "payload": {
+          "type": "object",
+          "properties": { "limit": { "type": "integer", "minimum": 1 } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "LeaderboardTopResponse": {
+      "type": "object",
+      "required": ["id", "type", "payload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "leaderboard.top" },
+        "payload": {
+          "type": "object",
+          "required": ["entries"],
+          "properties": {
+            "entries": { "type": "array", "items": { "$ref": "#/$defs/LeaderboardEntry" } }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchmakingEnqueueRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "matchmaking.enqueue" },
+        "payload": {
+          "type": "object",
+          "properties": { "partySize": { "type": "integer", "minimum": 1 } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchmakingCancelRequest": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "matchmaking.cancel" }
+      },
+      "additionalProperties": false
+    },
+    "MatchmakingMatchedEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "matchmaking.matched" },
+        "payload": {
+          "type": "object",
+          "required": ["matchId"],
+          "properties": { "matchId": { "type": "string", "minLength": 1 } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "LeaderboardUpdatedEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "leaderboard.updated" },
+        "payload": {
+          "type": "object",
+          "required": ["entries"],
+          "properties": {
+            "entries": { "type": "array", "items": { "$ref": "#/$defs/LeaderboardEntry" } }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MatchEventEvent": {
+      "type": "object",
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "match.event" },
+        "payload": {
+          "type": "object",
+          "required": ["matchId", "kind"],
+          "properties": {
+            "matchId": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReservedClientRequest": {
+      "oneOf": [
+        { "$ref": "#/$defs/LeaderboardTopRequest" },
+        { "$ref": "#/$defs/MatchmakingEnqueueRequest" },
+        { "$ref": "#/$defs/MatchmakingCancelRequest" }
+      ]
+    },
+    "ReservedServerEvent": {
+      "oneOf": [
+        { "$ref": "#/$defs/LeaderboardTopResponse" },
+        { "$ref": "#/$defs/MatchmakingMatchedEvent" },
+        { "$ref": "#/$defs/LeaderboardUpdatedEvent" },
+        { "$ref": "#/$defs/MatchEventEvent" }
+      ]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/ClientRequest" },
+    { "$ref": "#/$defs/ServerMessage" }
+  ]
+}
