@@ -44,6 +44,7 @@ center; players spawn on the base edge and move only inside the base.
 - [M1 ticket board](docs/TICKETS-M1.md) — parallelizable implementation tasks.
 - [Protocol TypeScript types](docs/protocol/v1.ts) — client-side reference types.
 - [Architecture handoff](docs/DESCRIPTION.md) — sketch-to-code mapping.
+- [Mars terrain](internal/terrain/README.md) — real HiRISE terrain at `GET /v1/mars-terrain/{seed}`.
 
 ## Layout
 
@@ -53,6 +54,7 @@ internal/server/config.go   environment configuration
 internal/server/server.go   HTTP routes and WebSocket upgrade
 internal/server/hub.go      connected-client registry
 internal/server/client.go   read/write pumps, welcome/hello handshake
+internal/terrain/           Mars heightmap regions and the terrain HTTP route
 Dockerfile                  multi-stage build (Go builder, Alpine runtime)
 compose.yaml                local server container
 ```
