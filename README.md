@@ -55,6 +55,7 @@ internal/server/server.go   HTTP routes and WebSocket upgrade
 internal/server/hub.go      connected-client registry
 internal/server/client.go   read/write pumps, welcome/hello handshake
 internal/marsgeo/           real HiRISE Mars terrain (MarsTerrainDataV1); no HTTP/WS
+internal/marsgeo/httpapi/   GET /v1/mars-terrain/{seed} transport (gzip, ETag, problem+json)
 cmd/marsgeo-prep/           offline HiRISE data preparation (network; not in the server)
 Dockerfile                  multi-stage build (Go builder, Alpine runtime)
 compose.yaml                local server container
@@ -137,6 +138,7 @@ All settings are environment variables and have defaults:
 | `ALLOWED_ORIGINS`          | `*`     | Comma-separated origins; `*` allows all.     |
 | `MAX_MESSAGE_BYTES`        | `32768` | Maximum incoming WebSocket frame size.       |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `10`    | Graceful shutdown deadline.                  |
+| `MARSGEO_DATA_DIR`         | unset   | HiRISE product files for `GET /v1/mars-terrain/{seed}` ([docs](docs/MARSGEO.md)); unset → that route answers 503. |
 
 `ALLOWED_ORIGINS=*` is convenient locally. Set a real origin in production.
 

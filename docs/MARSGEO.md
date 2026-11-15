@@ -4,7 +4,7 @@
 data. It is a library: no HTTP, no WebSocket, no game state. `cmd/marsgeo-prep` is the offline tool that prepares the
 data it reads.
 
-Status: Phase 4A (engine). The HTTP endpoint (section 9) is Phase 4A.5.
+Status: Phase 4A (engine) and Phase 4A.5 (HTTP endpoint, section 9).
 
 ## 1. What a payload contains
 
@@ -247,12 +247,39 @@ origin (to within 3e-13 m), and reports 100% valid pixels.
 `VALID_MINIMUM = 916.06`, which is rounded to two decimals. The predicate treats it as invalid. That is conservative:
 it can only remove coverage near one pixel, never invent data. The test pins this count.
 
-## 9. HTTP design (approved; implemented in Phase 4A.5)
+## 9. HTTP endpoint (Phase 4A.5)
 
-- `GET /v1/mars-terrain/{seed}`, where seed is a decimal `uint32`. The response body is the exact
-  `MarsTerrainDataV1` JSON.
-- 200: `Content-Type: application/json`; gzip when `Accept-Encoding` allows (`Vary: Accept-Encoding`); a strong
-  `ETag` from SHA-256 over `registryVersion` and the payload bytes; `Cache-Control: public, max-age=86400`.
+**Code layout.**
+- `internal/marsgeo/httpapi` is transport only: it parses the seed, calls a `Builder`, and handles encoding, caching
+  and problem responses.
+- `marsgeo` never imports it or `net/http`, and the engine can still be called directly without a server.
+- `internal/server` mounts the route and owns the terrain's lifecycle. It does not touch the WebSocket, hub or match
+  code.
+
+**Request and response.**
+- `GET /v1/mars-terrain/{seed}`. The seed is a decimal `uint32`: no sign, no leading zeros except `0`, at most 10
+  digits. Anything else gets 400.
+- The mux also answers `HEAD` and replies 405 to other methods.
+- The 200 body is exactly `json.Marshal` of the `MarsTerrainDataV1` payload, with `Content-Type: application/json`.
+- gzip is used when `Accept-Encoding` allows it (RFC 9110 §12.5.3, honouring `q=0` and `*`). Responses carry
+  `Vary: Accept-Encoding`.
+- The `ETag` is strong: SHA-256 over `registryVersion` and the payload bytes, with a `-gzip` suffix on the gzip
+  representation.
+- `If-None-Match` (a single tag, a list, or `*`) returns 304. It uses the weak comparison RFC 9110 §13.1.2 requires
+  for that header.
+- `Cache-Control: public, max-age=86400` on success; `no-store` on errors.
+- The real A02 payload is about 47 KB raw and about 20 KB gzipped.
+
+**Lifecycle.**
+- `marsgeo.LazyTerrain` opens the registry's files from `MARSGEO_DATA_DIR` on the first request, so startup never
+  waits on or fails for terrain data. The first request pays for the checksum of every product file, about 0.15 s for
+  A02.
+- A failed open is cached for `DefaultOpenRetryInterval` (30 s), which is also the `Retry-After` value. Each request
+  therefore cannot re-hash a broken file.
+- `Build` runs under a read lock. `Close` takes the write lock, waits for in-flight builds, and makes later calls
+  return 503.
+- `Server.Shutdown` closes the terrain after the HTTP server has shut down.
+- With `MARSGEO_DATA_DIR` unset, the endpoint answers 503 `data-unavailable` and the rest of the server is unaffected.
 - Errors are RFC 9457 `application/problem+json` with `{type, title, status, detail, code, retryable}` and
   `type = urn:space-chonkers:problem:<code>`:
 
@@ -261,7 +288,14 @@ it can only remove coverage near one pixel, never invent data. The test pins thi
 | 400 | `invalid-request` | false | seed not a decimal uint32 |
 | 422 | `no-coverage` | false | `ErrNoCoverage` |
 | 503 | `data-unavailable` | true | `ErrDataUnavailable` (with `Retry-After`) |
-| 500 | `internal` | true | anything else |
+| 500 | `internal` | true | anything else (including `ErrInvalidCoordinate`; seeds never carry coordinates) |
+
+Internal error text (paths, checksums) is logged, never sent to the client.
+
+**Not done in 4A.5:**
+- **CORS.** The endpoint sends no `Access-Control-Allow-Origin`, so a browser client on another origin cannot read it.
+  This has to be decided before Phase 4B connects the client.
+- **Response caching.** Every request re-samples the terrain, about 25 ms for A02.
 
 ## 10. Client-team follow-ups (not actioned; the client repo is read-only here)
 

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/marsgeo"
+	"github.com/space-chonkers/server/internal/marsgeo/httpapi"
 	"github.com/space-chonkers/server/internal/match"
 )
 
@@ -19,6 +21,7 @@ type Server struct {
 	log        *slog.Logger
 	hub        *Hub
 	matches    *match.Manager
+	terrain    *marsgeo.LazyTerrain
 	httpServer *http.Server
 	upgrader   websocket.Upgrader
 }
@@ -44,6 +47,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /readyz", server.handleReady)
 	mux.HandleFunc("GET "+cfg.WSPath, server.handleWebSocket)
+	mux.Handle(httpapi.Route, server.marsTerrainHandler())
 
 	server.httpServer = &http.Server{
 		Addr:              cfg.Addr,
@@ -60,7 +64,26 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.hub.CloseAll()
 	s.matches.Close()
-	return s.httpServer.Shutdown(ctx)
+	err := s.httpServer.Shutdown(ctx)
+	// After Shutdown, so in-flight terrain requests finish first. Close also
+	// waits for any Build still running if Shutdown timed out.
+	if cerr := s.terrain.Close(); cerr != nil {
+		s.log.Warn("close mars terrain", "error", cerr)
+	}
+	return err
+}
+
+// marsTerrainHandler wires the standalone marsgeo engine to HTTP. The
+// registry is embedded; its product files are opened lazily from
+// MarsGeoDataDir on the first request, so startup never waits on or fails
+// for terrain data.
+func (s *Server) marsTerrainHandler() http.Handler {
+	reg, err := marsgeo.DefaultRegistry()
+	if err != nil {
+		s.log.Error("mars terrain registry", "error", err) // build defect; the endpoint answers 503
+	}
+	s.terrain = marsgeo.NewLazyTerrain(reg, s.cfg.MarsGeoDataDir, marsgeo.DefaultOpenRetryInterval)
+	return httpapi.NewHandler(s.terrain, s.terrain.RegistryVersion(), s.log, httpapi.Options{})
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {

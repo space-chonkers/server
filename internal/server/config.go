@@ -23,6 +23,10 @@ type Config struct {
 	MaxPlayersPerMatch int
 	MaxMatches         int
 	Rules              protocol.Rules
+	// MarsGeoDataDir holds the HiRISE product files named by the embedded
+	// marsgeo registry (MARSGEO_DATA_DIR). Empty: the Mars terrain endpoint
+	// answers 503 data-unavailable; the rest of the server is unaffected.
+	MarsGeoDataDir string
 }
 
 // DefaultConfig returns the server defaults, including gameplay limits.
@@ -79,6 +83,7 @@ func ConfigFromEnv() Config {
 	cfg.AllowedOrigins = splitList(getenv("ALLOWED_ORIGINS", strings.Join(cfg.AllowedOrigins, ",")))
 	cfg.MaxMessageBytes = getenvInt64("MAX_MESSAGE_BYTES", cfg.MaxMessageBytes)
 	cfg.ShutdownTimeout = getenvDuration("SHUTDOWN_TIMEOUT_SECONDS", cfg.ShutdownTimeout)
+	cfg.MarsGeoDataDir = getenv("MARSGEO_DATA_DIR", cfg.MarsGeoDataDir)
 
 	return cfg
 }
