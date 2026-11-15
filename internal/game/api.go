@@ -111,11 +111,12 @@ type ResourceConfig struct {
 	CPSPerTile     float64
 }
 
-// Config contains the inputs needed to create an initial world.
+// Config contains world-generation and gameplay action settings.
 type Config struct {
 	InvestigationCount       int
 	InvestigationMinDistance float64
 	StartingPoolFraction     float64
+	BuildCost                BuildCost
 	Water                    ResourceConfig
 	Oxygen                   ResourceConfig
 	Energy                   ResourceConfig
@@ -139,6 +140,7 @@ func DefaultConfig() Config {
 		InvestigationCount:       10,
 		InvestigationMinDistance: 5,
 		StartingPoolFraction:     0.5,
+		BuildCost:                BuildCost{Water: 5, Oxygen: 5, Energy: 5},
 		Water: ResourceConfig{
 			PoolPerPlayer: 50, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
 			GPSPerTile: 0.04, CPSPerPlayer: 0.30, CPSPerTile: 0.08,
