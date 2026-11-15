@@ -304,6 +304,86 @@ Internal error text (paths, checksums) is logged, never sent to the client.
 - The schema's `elevation.datum` description still reads "Value still to be agreed". Proposal: pin it with
   `const: "mars-2000-areoid"`.
 
+## 11. Operations
+
+### Setting up `MARSGEO_DATA_DIR`
+
+The server finds its terrain data through two things:
+- the embedded registry (`internal/marsgeo/registry.json`), which names one file;
+- the directory in `MARSGEO_DATA_DIR`, which must contain that file.
+
+Nothing else is needed. In particular, there is no data download at startup.
+
+1. **Get the product** (115,674,048 bytes) and check it against the registry's SHA-256:
+
+   ```sh
+   export MARSGEO_DATA_DIR=/srv/marsgeo        # any directory the server can read
+   mkdir -p "$MARSGEO_DATA_DIR" && cd "$MARSGEO_DATA_DIR"
+   curl -fL -o DTEED_029716_1980_029426_1980_A02.IMG \
+     https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_029700_029799/ESP_029716_1980_ESP_029426_1980/DTEED_029716_1980_029426_1980_A02.IMG
+   echo "3e40595b71434951188f683e9818e5ee2e818b885d7908d5f9b68b659dc02d8a  DTEED_029716_1980_029426_1980_A02.IMG" | sha256sum -c -
+   chmod 0444 DTEED_029716_1980_029426_1980_A02.IMG
+   ```
+
+   The file name must match exactly. HiRISE data is public domain; credit "NASA/JPL/University of Arizona".
+   Maintainers who change the registry use `marsgeo-prep` instead (section 8). It downloads the file, rewrites
+   `registry.json`, and needs a commit and a new `registryVersion`.
+2. **Point the server at it.**
+   - Locally: `MARSGEO_DATA_DIR=/srv/marsgeo go run ./cmd/server`.
+   - In a container: mount the directory read-only and set the variable:
+     `docker run -v /srv/marsgeo:/data/marsgeo:ro -e MARSGEO_DATA_DIR=/data/marsgeo …`. `compose.yaml` does not
+     configure this yet; add the volume and variable to your deployment.
+3. **Verify the endpoint** once the server is up:
+
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/v1/mars-terrain/0      # expect 200
+   curl -s -D - -o /dev/null -H 'Accept-Encoding: gzip' http://localhost:8080/v1/mars-terrain/0
+   #   expect Content-Encoding: gzip, an ETag ending in -gzip", Cache-Control: public, max-age=86400
+   curl -s http://localhost:8080/v1/mars-terrain/0 | head -c 200; echo
+   #   expect {"version":1,"center":{...},"grid":{"columns":50,"rows":50,"cellSizeMeters":10},...
+   ```
+
+   - **503 `data-unavailable`:** the directory is unset, the file is missing or misnamed, or its size, SHA-256 or label
+     does not match. The server log line `mars terrain: data unavailable` names the cause.
+   - **Retrying a 503:** a failed open is retried at most every 30 s, so after fixing the data wait for
+     `Retry-After`, or restart the server.
+   - **First request:** it opens and checksums the file, about 0.15 s for A02. Later requests take about 25–30 ms.
+   - **`/healthz` and `/readyz`** do not depend on terrain data, so the endpoint can be unavailable while the server
+     reports healthy. Use the `curl` checks above to verify terrain specifically.
+
+### Product files are immutable while the server runs
+
+The server verifies each product file (size, SHA-256, label) once, when it first opens it, and then keeps it open and
+reads from it on every request. It does not re-verify later.
+
+- **Never overwrite or edit a product file in place while the server is running.** Changed bytes would be served
+  without verification until the next restart.
+- To replace or update data, use a controlled deployment:
+  1. stop the server, or roll to a new instance;
+  2. install the new file under a new path, or replace it by rename, never by writing into the old one;
+  3. verify its SHA-256 against the registry;
+  4. start the server.
+
+  Replacing a file by rename while the server runs is safe in the sense that the old, still-open file keeps being
+  served, but the new file is only used after a restart.
+- Keeping the files read-only (`chmod 0444`, a `:ro` mount) prevents accidental in-place writes.
+
+### Registry changes and HTTP caching
+
+Successful responses carry `Cache-Control: public, max-age=86400`. **After a registry change, HTTP clients, browsers,
+proxies and CDNs may keep serving the previous terrain for a seed for up to 24 hours** without asking the server.
+
+A registry change is a new product, a new lattice or a new `registryVersion`, and it can remap seeds.
+
+What stays correct:
+- Once a cached entry expires and is revalidated, the server returns the new terrain. The `ETag` covers
+  `registryVersion` and the payload bytes, so an old tag can never be confirmed as current.
+
+When a registry change must take effect sooner:
+- Purge the CDN or proxy caches for `/v1/mars-terrain/*`.
+- Accept that browser caches may lag by up to 24 hours.
+- Do not reuse a `registryVersion` for different content.
+
 ## Attribution
 
 HiRISE data: NASA/JPL/University of Arizona. Usage policy: https://uahirise.org/media/usage.php (public domain;

@@ -138,7 +138,7 @@ All settings are environment variables and have defaults:
 | `ALLOWED_ORIGINS`          | `*`     | Comma-separated origins; `*` allows all.     |
 | `MAX_MESSAGE_BYTES`        | `32768` | Maximum incoming WebSocket frame size.       |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `10`    | Graceful shutdown deadline.                  |
-| `MARSGEO_DATA_DIR`         | unset   | HiRISE product files for `GET /v1/mars-terrain/{seed}` ([docs](docs/MARSGEO.md)); unset → that route answers 503. |
+| `MARSGEO_DATA_DIR`         | unset   | HiRISE product files for `GET /v1/mars-terrain/{seed}`; unset → that route answers 503. Setup, verification and operating rules: [docs/MARSGEO.md §11](docs/MARSGEO.md#11-operations). |
 
 `ALLOWED_ORIGINS=*` is convenient locally. Set a real origin in production.
 
