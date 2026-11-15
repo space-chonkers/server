@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -112,5 +113,26 @@ func TestHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", body["status"])
+	}
+}
+
+type discardSink struct{}
+
+func (discardSink) Send(protocol.Envelope) {}
+
+func TestShutdownClosesMatches(t *testing.T) {
+	s := testServer(t)
+	if _, err := s.matches.Create("p_1", "ana", discardSink{}); err != nil {
+		t.Fatalf("create match: %v", err)
+	}
+	if s.matches.Count() != 1 {
+		t.Fatalf("expected one match, got %d", s.matches.Count())
+	}
+
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	if s.matches.Count() != 0 {
+		t.Fatalf("expected no matches after shutdown, got %d", s.matches.Count())
 	}
 }
