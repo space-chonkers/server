@@ -46,6 +46,7 @@ func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
 
 	m.phase = protocol.PhasePlaying
 	m.teamSize = teamSize
+	m.startedAt = now
 	m.world = world
 	countdown := m.stateLocked(protocol.PhaseCountdown, now, now)
 	playing := m.stateLocked(protocol.PhasePlaying, 0, now)

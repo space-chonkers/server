@@ -16,6 +16,9 @@ func (m *Match) applyInput(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.ended != nil {
+		return false, protocol.Errorf(protocol.CodeMatchOver, "match %s has ended", m.id)
+	}
 	if m.phase != protocol.PhasePlaying {
 		return false, protocol.Errorf(protocol.CodeWrongPhase, "match %s is not playing", m.id)
 	}
