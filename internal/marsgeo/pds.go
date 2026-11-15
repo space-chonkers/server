@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+// Bounds that keep every offset computation far from int64 overflow:
+// ImageOffset + LINES·LINE_SAMPLES·4 stays below 2^51. HiRISE DTMs are at
+// most a few tens of thousands of pixels per side.
+const (
+	maxRasterSide  = 1 << 20
+	maxImageOffset = int64(1) << 48
+)
+
 // HiRISE DTM dataset identifier (label DATA_SET_ID).
 const HiRISEDTMDatasetID = "MRO-M-HIRISE-5-DTM-V1.0"
 
@@ -281,7 +289,11 @@ func verifyLabel(pl *pdsLabel) (*Label, error) {
 	check(err)
 	lab.LabelBytes = pl.endAt
 
-	// ^IMAGE: record pointer n, or "n <BYTES>". Detached files are rejected.
+	// ^IMAGE: record pointer n (1-based records), or "n <BYTES>" (1-based
+	// bytes). Detached files are rejected. The offset is validated
+	// unconditionally below: it must be bounded and must start after the
+	// label END, so ^IMAGE = 1 (image over the label) is rejected.
+	imageOffsetOK := false
 	if v, err := pl.get("^IMAGE"); err != nil {
 		check(err)
 	} else {
@@ -292,12 +304,25 @@ func verifyLabel(pl *pdsLabel) (*Label, error) {
 		case perr != nil || n < 1:
 			fail("^IMAGE = %q is not a positive integer", v.raw)
 		case v.unit == "":
-			lab.ImageOffset = (n - 1) * int64(lab.RecordBytes)
+			if lab.RecordBytes <= 0 {
+				fail("^IMAGE is a record pointer but RECORD_BYTES is invalid")
+			} else if n-1 > maxImageOffset/int64(lab.RecordBytes) {
+				fail("^IMAGE = %d records is out of range", n)
+			} else {
+				lab.ImageOffset, imageOffsetOK = (n-1)*int64(lab.RecordBytes), true
+			}
 		case strings.EqualFold(v.unit, "BYTES"):
-			lab.ImageOffset = n - 1
+			if n-1 > maxImageOffset {
+				fail("^IMAGE = %d bytes is out of range", n)
+			} else {
+				lab.ImageOffset, imageOffsetOK = n-1, true
+			}
 		default:
 			fail("^IMAGE unit <%s> not supported", v.unit)
 		}
+	}
+	if imageOffsetOK && lab.ImageOffset < int64(lab.LabelBytes) {
+		fail("^IMAGE offset %d lies inside the label (%d bytes up to END)", lab.ImageOffset, lab.LabelBytes)
 	}
 
 	lab.DatasetID, err = pl.str("DATA_SET_ID")
@@ -321,6 +346,9 @@ func verifyLabel(pl *pdsLabel) (*Label, error) {
 	check(err)
 	lab.Samples, err = pl.positiveInt("IMAGE.LINE_SAMPLES")
 	check(err)
+	if lab.Lines > maxRasterSide || lab.Samples > maxRasterSide {
+		fail("raster %dx%d exceeds the %d-pixel limit per side", lab.Samples, lab.Lines, maxRasterSide)
+	}
 	lab.SampleType, err = pl.str("IMAGE.SAMPLE_TYPE")
 	check(err)
 	bits, err := pl.positiveInt("IMAGE.SAMPLE_BITS")
@@ -372,9 +400,6 @@ func verifyLabel(pl *pdsLabel) (*Label, error) {
 	}
 	if lab.RecordBytes > 0 && lab.Samples > 0 && lab.RecordBytes != lab.Samples*4 {
 		fail("RECORD_BYTES %d != LINE_SAMPLES %d x 4", lab.RecordBytes, lab.Samples)
-	}
-	if lab.ImageOffset > 0 && lab.ImageOffset < int64(lab.LabelBytes) {
-		fail("image offset %d overlaps the label (%d bytes)", lab.ImageOffset, lab.LabelBytes)
 	}
 
 	// IMAGE_MAP_PROJECTION.

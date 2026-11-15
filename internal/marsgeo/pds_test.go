@@ -282,3 +282,59 @@ func TestReadWindowBounds(t *testing.T) {
 		t.Fatalf("SE pixel = %v", v)
 	}
 }
+
+// TestImagePointerRejected: every ^IMAGE value that would put the image over
+// the label, before the file, or past int64 range is rejected, never decoded.
+func TestImagePointerRejected(t *testing.T) {
+	for _, ptr := range []string{
+		"1",           // record 1: the image would start at byte 0, over the label
+		"1 <BYTES>",   // byte 1: same
+		"100 <BYTES>", // inside the label text
+		"0", "-3",     // not positive
+		"9223372036854775807",     // (n-1)·RECORD_BYTES overflows int64 (was offset -32000)
+		"2305843009213693953",     // overflow wraps to offset 0 (was accepted)
+		"281474976710658 <BYTES>", // beyond the 2^48 offset bound
+		"2 <RECORDS>",             // unit not supported
+		"2.0",                     // not an integer
+	} {
+		t.Run(ptr, func(t *testing.T) {
+			p := newSynthProduct(4000, 3)
+			p.imagePointer = func(rb, records int) (string, int) { return ptr, rb }
+			expectInvalidProduct(t, p)
+		})
+	}
+}
+
+// TestImagePointerAtLabelEnd: an image right after the label (END + CRLF) is
+// valid; the same file with the pointer moved to the last byte of "END" is not.
+func TestImagePointerAtLabelEnd(t *testing.T) {
+	probe := newSynthProduct(4000, 3)
+	probe.imagePointer = func(rb, records int) (string, int) { return "4001 <BYTES>", 4000 }
+	end := probe.open(t).Label.LabelBytes
+
+	p := newSynthProduct(4000, 3)
+	start := end + 2 // after END and its CRLF
+	p.imagePointer = func(rb, records int) (string, int) { return fmt.Sprintf("%d <BYTES>", start+1), start }
+	good := p.bytes()
+	if _, err := OpenProduct(bytes.NewReader(good), int64(len(good))); err != nil {
+		t.Fatalf("image right after the label (byte %d) rejected: %v", start, err)
+	}
+	// "end <BYTES>" is 1-based, so the image would start at byte end-1, the "D" of END.
+	from, to := fmt.Sprintf("= %d <BYTES>", start+1), fmt.Sprintf("= %d <BYTES>", end)
+	if len(from) != len(to) {
+		t.Skip("pointer width changes; boundary not representable")
+	}
+	bad := bytes.Replace(good, []byte(from), []byte(to), 1)
+	if bytes.Equal(bad, good) {
+		t.Fatal("pointer replacement did not apply")
+	}
+	if _, err := OpenProduct(bytes.NewReader(bad), int64(len(bad))); !errors.Is(err, ErrInvalidProduct) {
+		t.Fatalf("image starting inside END accepted: %v", err)
+	}
+}
+
+func TestRasterSideLimit(t *testing.T) {
+	p := newSynthProduct(4, 4)
+	p.edit("LINES", fmt.Sprintf("  LINES = %d", 1<<20+1))
+	expectInvalidProduct(t, p)
+}
