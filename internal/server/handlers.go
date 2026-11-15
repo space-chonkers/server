@@ -79,14 +79,8 @@ func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) 
 		return
 	}
 
-	matchID := joined.ID()
-	now := time.Now().UnixMilli()
-	c.sendResponse(id, protocol.TypeMatchJoin, protocol.MatchJoinResult{
-		MatchID: matchID,
-		State:   joined.State(now),
-	})
-	if err := joined.PublishState(c.id, now); err != nil {
-		c.log.Error("publish join state", "client", c.id, "match", matchID, "error", err)
+	if err := joined.PublishJoin(id, c.id, time.Now().UnixMilli()); err != nil {
+		c.log.Error("publish join", "client", c.id, "match", joined.ID(), "error", err)
 	}
 }
 
@@ -101,15 +95,11 @@ func (c *Client) handleMatchLeave(id string) {
 }
 
 func (c *Client) handleMatchStart(id string) {
-	started, err := c.matches.Start(c.id)
-	if err != nil {
+	if _, err := c.matches.Start(c.id, time.Now().UnixMilli()); err != nil {
 		c.sendProtocolError(id, err)
 		return
 	}
 	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
-	if err := started.PublishStart(time.Now().UnixMilli()); err != nil {
-		c.log.Error("publish start state", "client", c.id, "match", started.ID(), "error", err)
-	}
 }
 
 // leaveMatchOnDisconnect removes a disconnected player and lets the remaining

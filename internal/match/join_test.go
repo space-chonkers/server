@@ -81,12 +81,9 @@ func newTestManager(t *testing.T, generate WorldGenerator) *Manager {
 
 func mustStart(t *testing.T, manager *Manager, playerID string) *Match {
 	t.Helper()
-	started, err := manager.Start(playerID)
+	started, err := manager.Start(playerID, 1234)
 	if err != nil {
 		t.Fatalf("start by %s: %v", playerID, err)
-	}
-	if err := started.PublishStart(1234); err != nil {
-		t.Fatalf("publish start by %s: %v", playerID, err)
 	}
 	return started
 }
@@ -155,6 +152,40 @@ func TestLobbyStateTracksMembersAndHost(t *testing.T) {
 	}
 }
 
+func TestPublishJoinSendsResponseAndState(t *testing.T) {
+	manager := newTestManager(t, nil)
+	hostSink := &fakeSink{}
+	guestSink := &fakeSink{}
+	created := mustCreate(t, manager, "p_1", hostSink)
+	mustJoin(t, manager, created.ID(), "p_2", guestSink)
+
+	if err := created.PublishJoin("join-1", "p_2", 1234); err != nil {
+		t.Fatalf("publish join: %v", err)
+	}
+
+	guestSink.mu.Lock()
+	if len(guestSink.envelopes) != 1 {
+		t.Fatalf("guest received %d envelopes, want 1", len(guestSink.envelopes))
+	}
+	response := guestSink.envelopes[0]
+	guestSink.mu.Unlock()
+	if response.Type != protocol.TypeMatchJoin || response.ID != "join-1" {
+		t.Fatalf("guest envelope = %+v", response)
+	}
+	var result protocol.MatchJoinResult
+	if err := json.Unmarshal(response.Payload, &result); err != nil {
+		t.Fatalf("decode join result: %v", err)
+	}
+	if result.MatchID != created.ID() || len(result.State.Players) != 2 {
+		t.Fatalf("join result = %+v", result)
+	}
+
+	state := sinkState(t, hostSink, 0)
+	if state.MatchID != created.ID() || len(state.Players) != 2 || state.HostID != "p_1" {
+		t.Fatalf("host state = %+v", state)
+	}
+}
+
 func TestStartReturnsCountdownThenPlayingState(t *testing.T) {
 	var gotSeed int64
 	var gotTeamSize int
@@ -168,12 +199,8 @@ func TestStartReturnsCountdownThenPlayingState(t *testing.T) {
 	created := mustCreate(t, manager, "p_1", hostSink)
 	mustJoin(t, manager, created.ID(), "p_2", guestSink)
 
-	started, err := manager.Start("p_1")
-	if err != nil {
+	if _, err := manager.Start("p_1", 1234); err != nil {
 		t.Fatalf("start: %v", err)
-	}
-	if err := started.PublishStart(1234); err != nil {
-		t.Fatalf("publish start: %v", err)
 	}
 	if gotSeed != 42 || gotTeamSize != 2 || gotConfig.InvestigationCount != game.DefaultConfig().InvestigationCount {
 		t.Fatalf("generator inputs seed=%d teamSize=%d config=%+v", gotSeed, gotTeamSize, gotConfig)
@@ -265,14 +292,14 @@ func TestStartRequiresHostAndLobby(t *testing.T) {
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
 	mustJoin(t, manager, created.ID(), "p_2", &fakeSink{})
 
-	if _, err := manager.Start("p_3"); protocol.CodeOf(err) != protocol.CodeNotInMatch {
+	if _, err := manager.Start("p_3", 1234); protocol.CodeOf(err) != protocol.CodeNotInMatch {
 		t.Fatalf("outsider: %v", err)
 	}
-	if _, err := manager.Start("p_2"); protocol.CodeOf(err) != protocol.CodeNotHost {
+	if _, err := manager.Start("p_2", 1234); protocol.CodeOf(err) != protocol.CodeNotHost {
 		t.Fatalf("non-host: %v", err)
 	}
 	mustStart(t, manager, "p_1")
-	if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeWrongPhase {
+	if _, err := manager.Start("p_1", 1234); protocol.CodeOf(err) != protocol.CodeWrongPhase {
 		t.Fatalf("second start: %v", err)
 	}
 }
@@ -287,7 +314,7 @@ func TestStartFailureLeavesLobby(t *testing.T) {
 	})
 	created := mustCreate(t, manager, "p_1", &fakeSink{})
 
-	if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
+	if _, err := manager.Start("p_1", 1234); protocol.CodeOf(err) != protocol.CodeInternal {
 		t.Fatalf("expected internal, got %v", err)
 	}
 	if state := created.State(1); state.Phase != protocol.PhaseLobby {
@@ -339,7 +366,7 @@ func TestStartRejectsInvalidWorld(t *testing.T) {
 			created := mustCreate(t, manager, "p_1", &fakeSink{})
 			mustJoin(t, manager, created.ID(), "p_2", &fakeSink{})
 
-			if _, err := manager.Start("p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
+			if _, err := manager.Start("p_1", 1234); protocol.CodeOf(err) != protocol.CodeInternal {
 				t.Fatalf("expected internal, got %v", err)
 			}
 			if state := created.State(1); state.Phase != protocol.PhaseLobby {
@@ -349,43 +376,38 @@ func TestStartRejectsInvalidWorld(t *testing.T) {
 	}
 }
 
-func TestStartPublicationUsesCurrentMembership(t *testing.T) {
+func TestLeavePublishesUpdatedState(t *testing.T) {
 	manager := newTestManager(t, nil)
 	hostSink := &fakeSink{}
 	guestSink := &fakeSink{}
 	created := mustCreate(t, manager, "p_1", hostSink)
 	mustJoin(t, manager, created.ID(), "p_2", guestSink)
 
-	started, err := manager.Start("p_1")
-	if err != nil {
+	if _, err := manager.Start("p_1", 1234); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	for i := 0; i < 2; i++ {
+		if state := sinkState(t, hostSink, i); len(state.Players) != 2 {
+			t.Fatalf("start state %d players = %+v", i, state.Players)
+		}
+	}
+
 	surviving, err := manager.Leave("p_2")
 	if err != nil {
 		t.Fatalf("leave: %v", err)
 	}
 	if err := surviving.PublishState("", 2000); err != nil {
-		t.Fatalf("publish during start: %v", err)
+		t.Fatalf("publish after leave: %v", err)
 	}
-	if got := hostSink.count(); got != 0 {
-		t.Fatalf("published %d states before the start snapshot", got)
+	state := sinkState(t, hostSink, 2)
+	if len(state.Players) != 1 || state.Players[0].ID != "p_1" {
+		t.Fatalf("state after leave = %+v", state.Players)
 	}
-
-	if err := started.PublishStart(1234); err != nil {
-		t.Fatalf("publish start: %v", err)
+	if state.TeamSize != 2 || state.HostID != "p_1" {
+		t.Fatalf("state after leave = %+v", state)
 	}
-	countdown := sinkState(t, hostSink, 0)
-	playing := sinkState(t, hostSink, 1)
-	for _, state := range []protocol.MatchState{countdown, playing} {
-		if len(state.Players) != 1 || state.Players[0].ID != "p_1" {
-			t.Fatalf("start snapshot kept a departed player: %+v", state.Players)
-		}
-		if state.TeamSize != 2 || state.HostID != "p_1" {
-			t.Fatalf("start snapshot = %+v", state)
-		}
-	}
-	if got := guestSink.count(); got != 0 {
-		t.Fatalf("departed guest received %d start events", got)
+	if got := guestSink.count(); got != 2 {
+		t.Fatalf("departed guest received %d events, want 2 start states", got)
 	}
 }
 
@@ -489,7 +511,7 @@ func TestConcurrentStartOnlyOneWins(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, err := manager.Start("p_1")
+			_, err := manager.Start("p_1", 1234)
 			results <- err
 		}()
 	}

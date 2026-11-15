@@ -9,40 +9,58 @@ import (
 
 type worldFactory func(teamSize int) (game.World, error)
 
-// start validates the host and phase, generates the world, and freezes the
-// starting team.
-func (m *Match) start(playerID string, newWorld worldFactory) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// start validates the host and phase, generates the world, and publishes the
+// countdown and playing states as one transition.
+func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
 
+	m.mu.Lock()
 	if !m.hasLocked(playerID) {
+		m.mu.Unlock()
 		return protocol.Errorf(
 			protocol.CodeNotInMatch, "player %s is not in match %s", playerID, m.id,
 		)
 	}
-	if m.members[m.hostSlot].PlayerID != playerID {
+	if m.hostIDLocked() != playerID {
+		m.mu.Unlock()
 		return protocol.Errorf(
 			protocol.CodeNotHost, "player %s is not the host of match %s", playerID, m.id,
 		)
 	}
 	if m.phase != protocol.PhaseLobby {
+		m.mu.Unlock()
 		return protocol.Errorf(protocol.CodeWrongPhase, "match %s is already %s", m.id, m.phase)
 	}
 
 	members := m.membersLocked()
 	teamSize := len(members)
 	world, err := newWorld(teamSize)
-	if err != nil {
-		return protocol.Errorf(protocol.CodeInternal, "generate match world: %v", err)
+	if err == nil {
+		err = m.validateWorldLocked(world, members)
 	}
-	if err := m.validateWorldLocked(world, members); err != nil {
+	if err != nil {
+		m.mu.Unlock()
 		return protocol.Errorf(protocol.CodeInternal, "generate match world: %v", err)
 	}
 
 	m.phase = protocol.PhasePlaying
 	m.teamSize = teamSize
 	m.world = world
-	m.startPending = true
+	countdown := m.stateLocked(protocol.PhaseCountdown, now, now)
+	playing := m.stateLocked(protocol.PhasePlaying, 0, now)
+	m.mu.Unlock()
+
+	countdownEvent, err := protocol.NewEvent(protocol.TypeMatchState, countdown)
+	if err != nil {
+		return err
+	}
+	playingEvent, err := protocol.NewEvent(protocol.TypeMatchState, playing)
+	if err != nil {
+		return err
+	}
+	sendEvent(members, "", countdownEvent)
+	sendEvent(members, "", playingEvent)
 	return nil
 }
 

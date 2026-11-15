@@ -73,7 +73,8 @@ end: match.ended
   `match.state` event and the host migrates to the lowest occupied slot.
 - `match.start` is host-only and lobby-only. M1 sends a zero-length `countdown`
   state immediately followed by the `playing` state; both carry the same world
-  snapshot. Countdown UI and timing are M2.
+  snapshot. Countdown UI and timing are M2. The states are published before the
+  host receives the `match.start` OK response.
 - Leaving during play keeps `teamSize` frozen at its starting value.
 
 Close codes: `1000` normal, `1001` shutdown, `1003` binary frame, `1008` policy

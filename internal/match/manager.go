@@ -120,18 +120,16 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 	return m.createLobby(playerID, name, sink)
 }
 
-// Start freezes the player's lobby and generates its world. Only the host may
-// start, and only once. The caller publishes the start states with
-// Match.PublishStart.
-func (m *Manager) Start(playerID string) (*Match, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// Start freezes the player's lobby and publishes its start states. Only the
+// host may start, and only once.
+func (m *Manager) Start(playerID string, now int64) (*Match, error) {
+	m.mu.RLock()
 	match := m.matchOf(playerID)
+	m.mu.RUnlock()
 	if match == nil {
 		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
-	if err := match.start(playerID, m.newWorld); err != nil {
+	if err := match.start(playerID, m.newWorld, now); err != nil {
 		return nil, err
 	}
 	return match, nil

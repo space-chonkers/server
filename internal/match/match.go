@@ -9,7 +9,9 @@ import (
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
-// Sink delivers one server message to a client.
+// Sink delivers one server message to a client. Send must not block or call
+// back into the match; state publication holds the per-match order while
+// calling it.
 type Sink interface {
 	Send(protocol.Envelope)
 }
@@ -25,16 +27,15 @@ type Member struct {
 // Match is one lobby or running match. mu guards membership and the start
 // snapshot; publishMu orders state publication against membership changes.
 type Match struct {
-	mu           sync.RWMutex
-	publishMu    sync.Mutex
-	id           string
-	members      []*Member // index == slot; nil is free
-	hostSlot     int       // -1 when the match is empty
-	phase        protocol.Phase
-	grid         protocol.GridSize // published while the match is a lobby
-	teamSize     int               // frozen when the match starts
-	world        game.World
-	startPending bool // start committed, countdown/playing not yet published
+	mu        sync.RWMutex
+	publishMu sync.Mutex
+	id        string
+	members   []*Member // index == slot; nil is free
+	hostSlot  int       // -1 when the match is empty
+	phase     protocol.Phase
+	grid      protocol.GridSize // published while the match is a lobby
+	teamSize  int               // frozen when the match starts
+	world     game.World
 }
 
 func newMatch(id string, maxPlayers int) *Match {
@@ -202,10 +203,6 @@ func (m *Match) PublishState(exceptPlayerID string, now int64) error {
 	defer m.publishMu.Unlock()
 
 	m.mu.RLock()
-	if m.startPending {
-		m.mu.RUnlock()
-		return nil
-	}
 	state := m.stateLocked(m.phase, 0, now)
 	members := m.membersLocked()
 	m.mu.RUnlock()
@@ -218,34 +215,35 @@ func (m *Match) PublishState(exceptPlayerID string, now int64) error {
 	return nil
 }
 
-// PublishStart sends the countdown and playing states for a committed start.
-// Membership changes between commit and publication are reflected in both
-// snapshots.
-func (m *Match) PublishStart(now int64) error {
+// PublishJoin sends the join response to the joiner and the lobby state to
+// every other member in one publication order.
+func (m *Match) PublishJoin(requestID, joinerID string, now int64) error {
 	m.publishMu.Lock()
 	defer m.publishMu.Unlock()
 
-	m.mu.Lock()
-	if !m.startPending {
-		m.mu.Unlock()
-		return nil
-	}
-	countdown := m.stateLocked(protocol.PhaseCountdown, now, now)
-	playing := m.stateLocked(protocol.PhasePlaying, 0, now)
+	m.mu.RLock()
+	state := m.stateLocked(m.phase, 0, now)
 	members := m.membersLocked()
-	m.startPending = false
-	m.mu.Unlock()
+	m.mu.RUnlock()
 
-	countdownEvent, err := protocol.NewEvent(protocol.TypeMatchState, countdown)
+	response, err := protocol.NewResponse(requestID, protocol.TypeMatchJoin, protocol.MatchJoinResult{
+		MatchID: m.id,
+		State:   state,
+	})
 	if err != nil {
 		return err
 	}
-	playingEvent, err := protocol.NewEvent(protocol.TypeMatchState, playing)
+	event, err := protocol.NewEvent(protocol.TypeMatchState, state)
 	if err != nil {
 		return err
 	}
-	sendEvent(members, "", countdownEvent)
-	sendEvent(members, "", playingEvent)
+	for _, member := range members {
+		if member.PlayerID == joinerID {
+			member.Sink.Send(response)
+			continue
+		}
+		member.Sink.Send(event)
+	}
 	return nil
 }
 

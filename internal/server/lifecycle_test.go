@@ -106,12 +106,13 @@ func expectStartStates(t *testing.T, conn *websocket.Conn) (protocol.MatchState,
 func startMatch(t *testing.T, conn *websocket.Conn, id string) (protocol.MatchState, protocol.MatchState) {
 	t.Helper()
 	writeEnvelope(t, conn, protocol.Envelope{ID: id, Type: protocol.TypeMatchStart})
+	countdown, playing := expectStartStates(t, conn)
 	envelope := readEnvelope(t, conn)
 	if envelope.Type != protocol.TypeMatchStart || envelope.ID != id {
 		t.Fatalf("expected match.start response %q, got id=%q type=%q", id, envelope.ID, envelope.Type)
 	}
 	_ = decodePayload[protocol.OKPayload](t, envelope)
-	return expectStartStates(t, conn)
+	return countdown, playing
 }
 
 func TestMatchJoinCreateJoinAndLeave(t *testing.T) {
