@@ -1,6 +1,7 @@
 package marsgeo
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
@@ -91,10 +92,46 @@ type invalidPrefix struct {
 	sum  []uint32
 }
 
-// newInvalidPrefix scans the product line by line.
+// PrefixScanBudgetBytes is the most memory the coverage scan's prefix-sum
+// table may use: (LINE_SAMPLES+1)·(LINES+1)·4 bytes. 512 MiB holds about 134
+// million cells; the real A02 product (3,504 x 8,252) needs about 116 MB.
+// Larger rasters are refused with ErrScanBudgetExceeded before anything is
+// allocated, so a malformed or oversized label cannot drive the prep tool
+// into a multi-terabyte allocation.
+const PrefixScanBudgetBytes int64 = 512 << 20
+
+// ErrScanBudgetExceeded reports a raster too large for the coverage scan's
+// memory budget.
+var ErrScanBudgetExceeded = errors.New("marsgeo: raster exceeds the coverage-scan memory budget")
+
+// prefixTableBytes returns the prefix-sum table size for a w x h raster, or
+// false if it exceeds budget. The arithmetic is checked before multiplying, so
+// it cannot overflow for any int dimensions.
+func prefixTableBytes(w, h int, budget int64) (int64, bool) {
+	maxCells := budget / 4
+	// Compare before adding 1: int64(w)+1 would wrap for w = MaxInt64.
+	if w < 0 || h < 0 || int64(w) >= maxCells || int64(h) >= maxCells {
+		return 0, false
+	}
+	cols, rows := int64(w)+1, int64(h)+1 // both now <= maxCells <= 2^61
+	if rows > maxCells/cols {
+		return 0, false
+	}
+	return cols * rows * 4, true
+}
+
+// newInvalidPrefix scans the product line by line within PrefixScanBudgetBytes.
 func newInvalidPrefix(p *Product) (*invalidPrefix, error) {
+	return newInvalidPrefixBudget(p, PrefixScanBudgetBytes)
+}
+
+func newInvalidPrefixBudget(p *Product, budget int64) (*invalidPrefix, error) {
 	w, h := p.Label.Samples, p.Label.Lines
-	ip := &invalidPrefix{w: w, h: h, sum: make([]uint32, (w+1)*(h+1))}
+	size, ok := prefixTableBytes(w, h, budget)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s is %dx%d px; its prefix-sum table would exceed %d bytes", ErrScanBudgetExceeded, p.Label.ProductID, w, h, budget)
+	}
+	ip := &invalidPrefix{w: w, h: h, sum: make([]uint32, size/4)}
 	pv := p.validity()
 	for y := 0; y < h; y++ {
 		line, err := p.ReadWindow(0, y, w, 1)

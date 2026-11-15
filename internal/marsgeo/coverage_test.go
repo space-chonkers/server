@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 )
 
@@ -273,5 +274,77 @@ func TestLatticeRuns(t *testing.T) {
 		if (&Lattice{Step: 1, Runs: bad}).validate() == nil {
 			t.Errorf("runs %v accepted", bad)
 		}
+	}
+}
+
+func TestPrefixTableBudget(t *testing.T) {
+	const b = PrefixScanBudgetBytes
+	a02, ok := prefixTableBytes(3504, 8252, b)
+	if !ok || a02 != 3505*8253*4 {
+		t.Fatalf("A02 table = %d, %v; want %d within the budget", a02, ok, 3505*8253*4)
+	}
+	cells := b / 4
+	for _, c := range []struct {
+		w, h int
+		ok   bool
+	}{
+		{0, 0, true},
+		{int(cells) - 1, 0, true},         // exactly the budget
+		{int(cells), 0, false},            // one cell over
+		{1 << 20, 1 << 20, false},         // largest label-legal raster: ~4 TiB
+		{math.MaxInt, math.MaxInt, false}, // would overflow a naive (w+1)*(h+1)
+		{math.MaxInt, 0, false},
+		{-1, 5, false},
+	} {
+		if _, got := prefixTableBytes(c.w, c.h, b); got != c.ok {
+			t.Errorf("prefixTableBytes(%d, %d) ok = %v, want %v", c.w, c.h, got, c.ok)
+		}
+	}
+}
+
+func TestPrefixScanRefusesOverBudget(t *testing.T) {
+	prod := newSynthProduct(40, 30).open(t)
+	if _, err := newInvalidPrefixBudget(prod, 41*31*4-1); !errors.Is(err, ErrScanBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrScanBudgetExceeded", err)
+	}
+	if _, err := newInvalidPrefixBudget(prod, 41*31*4); err != nil {
+		t.Fatalf("exact budget rejected: %v", err)
+	}
+}
+
+// hugeReader serves a label and claims a size big enough for any declared
+// image; image reads return zeros. Nothing must ever read that far.
+type hugeReader struct{ label []byte }
+
+func (h hugeReader) ReadAt(p []byte, off int64) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	if off < int64(len(h.label)) {
+		copy(p, h.label[off:])
+	}
+	return len(p), nil
+}
+
+func TestScanLatticeRefusesOversizedLabelWithoutAllocating(t *testing.T) {
+	p := newSynthProduct(4, 4)
+	p.edit("LINES", "  LINES = 1048576")
+	p.edit("LINE_SAMPLES", "  LINE_SAMPLES = 1048576")
+	p.edit("RECORD_BYTES", "RECORD_BYTES = 4194304")
+	p.imagePointer = func(rb, records int) (string, int) { return "2", 4194304 } // record 2 of the forged RECORD_BYTES
+	label := p.bytes()
+	prod, err := OpenProduct(hugeReader{label}, 1<<62)
+	if err != nil {
+		t.Fatalf("forged label should parse (it is layout-consistent): %v", err)
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err = ScanLattice(prod, DefaultGrid, 5, 25)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, ErrScanBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrScanBudgetExceeded", err)
+	}
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 1<<20 {
+		t.Fatalf("refusal allocated %d bytes", grew)
 	}
 }

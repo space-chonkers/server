@@ -150,6 +150,16 @@ its |latitude| ≤ 85° and its whole footprint rectangle lies inside the raster
 sum makes each check O(1). Kept centres are stored as run-length rows in the registry. A02 has **28,546** valid
 centres.
 
+**Scan memory budget.** The prefix-sum table takes (LINE_SAMPLES + 1) × (LINES + 1) × 4 bytes, about 116 MB for A02.
+`PrefixScanBudgetBytes` caps it at 512 MiB (about 134 million cells). A larger raster is refused with
+`ErrScanBudgetExceeded` before anything is allocated. The size check cannot overflow, so a malformed or oversized
+label cannot push the prep tool into a multi-terabyte allocation.
+
+**Lifecycle.** `Terrain.Build` and `Locate` are safe for concurrent use. `Terrain.Close` is not: it must not run
+while a `Build` or `Locate` is in progress, and nothing may call them after it. A `Build` after `Close` fails with
+`ErrDataUnavailable`. Phase 4A.5 must enforce this, for example by closing the terrain only after the HTTP server has
+stopped serving requests.
+
 **Runtime re-check.** `Build` reads exactly the footprint rectangle and checks every pixel again with the same
 predicate before resampling. A registry that disagrees with the data gives `ErrNoCoverage`, never a payload.
 

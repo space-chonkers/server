@@ -112,7 +112,11 @@ func (e *Entry) check() error {
 }
 
 // Terrain is an opened registry: every product file verified and held open.
-// It is safe for concurrent use; Build only reads.
+// Build and Locate are safe for concurrent use: they only read (ReadAt on
+// the open files). Close is not: it must not run concurrently with Build or
+// Locate, and nothing may call them after Close. Callers own that lifecycle;
+// the Phase 4A.5 HTTP layer must enforce it, for example by closing only
+// after the server has stopped serving requests.
 type Terrain struct {
 	reg      *Registry
 	products []*Product
@@ -176,7 +180,8 @@ func openEntry(dataDir string, e *Entry) (*Product, *os.File, error) {
 }
 
 // Close releases the product files and returns every close error, joined.
-// Calling it again is a no-op.
+// Calling it again is a no-op. It must not run concurrently with Build or
+// Locate (see Terrain); a Build after Close fails with ErrDataUnavailable.
 func (t *Terrain) Close() error {
 	var errs []error
 	for _, f := range t.files {
