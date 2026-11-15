@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"sync"
-	"time"
 
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
@@ -24,9 +23,10 @@ type WorldGenerator func(seed int64, teamSize int, config game.Config) (game.Wor
 // SeedSource returns the seed for one world.
 type SeedSource func() (int64, error)
 
-// Options are the manager limits and match-start inputs. Both limits must be
-// non-negative. Grid is published in lobby state; GameConfig, GenerateWorld,
-// and NewSeed are used when a host starts a match.
+// Options are the manager limits and world inputs. GenerateWorld, NewSeed, and
+// GameConfig are composed into one world factory at construction. Grid is the
+// authoritative map size for lobby and playing state; generated worlds must
+// match it.
 type Options struct {
 	MaxMatches         int
 	MaxPlayersPerMatch int
@@ -39,23 +39,34 @@ type Options struct {
 // Manager owns the registry and every transition that changes it. Lock order is
 // Manager then Match; Match never calls back into Manager.
 type Manager struct {
-	mu      sync.RWMutex
-	matches map[string]*Match
-	opts    Options
-	closed  bool
+	mu       sync.RWMutex
+	matches  map[string]*Match
+	opts     Options
+	newWorld worldFactory
+	closed   bool
 }
 
 // NewManager returns an empty registry with the given limits.
 func NewManager(opts Options) *Manager {
-	if opts.GenerateWorld == nil {
-		opts.GenerateWorld = game.GenerateWorld
+	generate := opts.GenerateWorld
+	if generate == nil {
+		generate = game.GenerateWorld
 	}
-	if opts.NewSeed == nil {
-		opts.NewSeed = randomSeed
+	seed := opts.NewSeed
+	if seed == nil {
+		seed = randomSeed
+	}
+	newWorld := func(teamSize int) (game.World, error) {
+		worldSeed, err := seed()
+		if err != nil {
+			return game.World{}, err
+		}
+		return generate(worldSeed, teamSize, opts.GameConfig)
 	}
 	return &Manager{
-		matches: make(map[string]*Match),
-		opts:    opts,
+		matches:  make(map[string]*Match),
+		opts:     opts,
+		newWorld: newWorld,
 	}
 }
 
@@ -109,9 +120,9 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 	return m.createLobby(playerID, name, sink)
 }
 
-// Start freezes the lobby, generates its world, and returns the countdown and
-// playing snapshots to publish. Only the host may start, and only once.
-func (m *Manager) Start(matchID, playerID string) (*Started, error) {
+// Start freezes the lobby and generates its world. Only the host may start,
+// and only once. The caller publishes the start states with Match.PublishStart.
+func (m *Manager) Start(matchID, playerID string) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -119,32 +130,31 @@ func (m *Manager) Start(matchID, playerID string) (*Started, error) {
 	if !ok {
 		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
 	}
-	countdown, playing, err := match.start(
-		playerID, m.opts.NewSeed, m.opts.GenerateWorld, m.opts.GameConfig, time.Now().UnixMilli(),
-	)
-	if err != nil {
+	if err := match.start(playerID, m.newWorld); err != nil {
 		return nil, err
 	}
-	return &Started{Match: match, Countdown: countdown, Playing: playing}, nil
+	return match, nil
 }
 
-// Leave removes a player and drops the match when it becomes empty.
-func (m *Manager) Leave(matchID, playerID string) error {
+// Leave removes a player and returns the surviving match, or nil when it
+// became empty and was dropped.
+func (m *Manager) Leave(matchID, playerID string) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	match, ok := m.matches[matchID]
 	if !ok {
-		return protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
+		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
 	}
 	removed, empty := match.remove(playerID)
 	if !removed {
-		return protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, matchID)
+		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, matchID)
 	}
 	if empty {
 		delete(m.matches, matchID)
+		return nil, nil
 	}
-	return nil
+	return match, nil
 }
 
 // Get returns a live match by code.

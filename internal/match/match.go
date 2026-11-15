@@ -23,16 +23,18 @@ type Member struct {
 }
 
 // Match is one lobby or running match. mu guards membership and the start
-// snapshot.
+// snapshot; publishMu orders state publication against membership changes.
 type Match struct {
-	mu       sync.RWMutex
-	id       string
-	members  []*Member // index == slot; nil is free
-	hostSlot int       // -1 when the match is empty
-	phase    protocol.Phase
-	grid     protocol.GridSize // published while the match is a lobby
-	teamSize int               // frozen when the match starts
-	world    game.World
+	mu           sync.RWMutex
+	publishMu    sync.Mutex
+	id           string
+	members      []*Member // index == slot; nil is free
+	hostSlot     int       // -1 when the match is empty
+	phase        protocol.Phase
+	grid         protocol.GridSize // published while the match is a lobby
+	teamSize     int               // frozen when the match starts
+	world        game.World
+	startPending bool // start committed, countdown/playing not yet published
 }
 
 func newMatch(id string, maxPlayers int) *Match {
@@ -151,25 +153,107 @@ func (m *Match) HostID() string {
 	return m.hostIDLocked()
 }
 
+// membersLocked returns a copy in slot order. The caller holds mu.
+func (m *Match) membersLocked() []Member {
+	members := make([]Member, 0, len(m.members))
+	for _, member := range m.members {
+		if member != nil {
+			members = append(members, *member)
+		}
+	}
+	return members
+}
+
+// hostIDLocked returns the host id, or an empty string. The caller holds mu.
+func (m *Match) hostIDLocked() string {
+	if m.hostSlot < 0 {
+		return ""
+	}
+	return m.members[m.hostSlot].PlayerID
+}
+
+// hasLocked reports whether playerID is a member. The caller holds mu.
+func (m *Match) hasLocked(playerID string) bool {
+	for _, member := range m.members {
+		if member != nil && member.PlayerID == playerID {
+			return true
+		}
+	}
+	return false
+}
+
 // Broadcast delivers one event to every member's sink. It copies members and
 // sends outside the lock so a sink cannot block membership changes. The error
 // covers event construction only; delivery is best-effort.
 func (m *Match) Broadcast(typ protocol.MessageType, payload any) error {
-	return m.BroadcastExcept("", typ, payload)
-}
-
-// BroadcastExcept delivers one event to every member except exceptPlayerID. An
-// empty id broadcasts to everyone.
-func (m *Match) BroadcastExcept(exceptPlayerID string, typ protocol.MessageType, payload any) error {
 	event, err := protocol.NewEvent(typ, payload)
 	if err != nil {
 		return err
 	}
-	for _, member := range m.Members() {
+	sendEvent(m.Members(), "", event)
+	return nil
+}
+
+// PublishState sends the current full state to every member except
+// exceptPlayerID. It builds the state at publication time so a membership
+// change cannot be overwritten by an older snapshot.
+func (m *Match) PublishState(exceptPlayerID string, now int64) error {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+
+	m.mu.RLock()
+	if m.startPending {
+		m.mu.RUnlock()
+		return nil
+	}
+	state := m.stateLocked(m.phase, 0, now)
+	members := m.membersLocked()
+	m.mu.RUnlock()
+
+	event, err := protocol.NewEvent(protocol.TypeMatchState, state)
+	if err != nil {
+		return err
+	}
+	sendEvent(members, exceptPlayerID, event)
+	return nil
+}
+
+// PublishStart sends the countdown and playing states for a committed start.
+// Membership changes between commit and publication are reflected in both
+// snapshots.
+func (m *Match) PublishStart(now int64) error {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+
+	m.mu.Lock()
+	if !m.startPending {
+		m.mu.Unlock()
+		return nil
+	}
+	countdown := m.stateLocked(protocol.PhaseCountdown, now, now)
+	playing := m.stateLocked(protocol.PhasePlaying, 0, now)
+	members := m.membersLocked()
+	m.startPending = false
+	m.mu.Unlock()
+
+	countdownEvent, err := protocol.NewEvent(protocol.TypeMatchState, countdown)
+	if err != nil {
+		return err
+	}
+	playingEvent, err := protocol.NewEvent(protocol.TypeMatchState, playing)
+	if err != nil {
+		return err
+	}
+	sendEvent(members, "", countdownEvent)
+	sendEvent(members, "", playingEvent)
+	return nil
+}
+
+func sendEvent(members []Member, exceptPlayerID string, event protocol.Envelope) {
+	for _, member := range members {
 		if member.PlayerID == exceptPlayerID {
 			continue
 		}
 		member.Sink.Send(event)
 	}
-	return nil
 }

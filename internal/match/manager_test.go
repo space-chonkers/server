@@ -92,17 +92,17 @@ func TestJoinAndLeave(t *testing.T) {
 	if _, err := manager.Join("NOPE", "p_3", "p_3", &fakeSink{}); protocol.CodeOf(err) != protocol.CodeMatchNotFound {
 		t.Fatalf("expected match_not_found, got %v", err)
 	}
-	if err := manager.Leave("NOPE", "p_1"); protocol.CodeOf(err) != protocol.CodeMatchNotFound {
+	if _, err := manager.Leave("NOPE", "p_1"); protocol.CodeOf(err) != protocol.CodeMatchNotFound {
 		t.Fatalf("expected match_not_found, got %v", err)
 	}
 
-	if err := manager.Leave(match.ID(), "p_2"); err != nil {
+	if _, err := manager.Leave(match.ID(), "p_2"); err != nil {
 		t.Fatalf("leave p_2: %v", err)
 	}
-	if err := manager.Leave(match.ID(), "p_2"); protocol.CodeOf(err) != protocol.CodeNotInMatch {
+	if _, err := manager.Leave(match.ID(), "p_2"); protocol.CodeOf(err) != protocol.CodeNotInMatch {
 		t.Fatalf("expected not_in_match, got %v", err)
 	}
-	if err := manager.Leave(match.ID(), "p_1"); err != nil {
+	if _, err := manager.Leave(match.ID(), "p_1"); err != nil {
 		t.Fatalf("leave p_1: %v", err)
 	}
 	if _, ok := manager.Get(match.ID()); ok {
@@ -220,10 +220,10 @@ func TestTwoMatchesAreIsolated(t *testing.T) {
 		t.Fatalf("second match members = %d, want 1", got)
 	}
 
-	if err := manager.Leave(first.ID(), "p_a1"); err != nil {
+	if _, err := manager.Leave(first.ID(), "p_a1"); err != nil {
 		t.Fatalf("leave p_a1: %v", err)
 	}
-	if err := manager.Leave(first.ID(), "p_a2"); err != nil {
+	if _, err := manager.Leave(first.ID(), "p_a2"); err != nil {
 		t.Fatalf("leave p_a2: %v", err)
 	}
 	if _, ok := manager.Get(first.ID()); ok {
@@ -259,7 +259,7 @@ func TestConcurrentLifecycle(t *testing.T) {
 					return
 				}
 				match.Members()
-				if err := manager.Leave(match.ID(), playerID); err != nil {
+				if _, err := manager.Leave(match.ID(), playerID); err != nil {
 					t.Errorf("worker %d leave: %v", worker, err)
 					return
 				}
@@ -281,7 +281,7 @@ func TestManagerDoesNotLeakGoroutines(t *testing.T) {
 		playerID := fmt.Sprintf("p_%d", i)
 		match := mustCreate(t, manager, playerID, &fakeSink{})
 		mustBroadcast(t, match)
-		if err := manager.Leave(match.ID(), playerID); err != nil {
+		if _, err := manager.Leave(match.ID(), playerID); err != nil {
 			t.Fatalf("leave %s: %v", playerID, err)
 		}
 	}

@@ -259,13 +259,13 @@ func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) 
 
 	matchID := joined.ID()
 	c.matchID = matchID
-	state := joined.State(time.Now().UnixMilli())
+	now := time.Now().UnixMilli()
 	c.sendResponse(id, protocol.TypeMatchJoin, protocol.MatchJoinResult{
 		MatchID: matchID,
-		State:   state,
+		State:   joined.State(now),
 	})
-	if err := joined.BroadcastExcept(c.id, protocol.TypeMatchState, state); err != nil {
-		c.log.Error("broadcast join state", "client", c.id, "match", matchID, "error", err)
+	if err := joined.PublishState(c.id, now); err != nil {
+		c.log.Error("publish join state", "client", c.id, "match", matchID, "error", err)
 	}
 }
 
@@ -276,14 +276,15 @@ func (c *Client) handleMatchLeave(id string) {
 	}
 
 	matchID := c.matchID
-	if err := c.matches.Leave(matchID, c.id); err != nil {
+	surviving, err := c.matches.Leave(matchID, c.id)
+	if err != nil {
 		c.matchID = ""
 		c.sendProtocolError(id, err)
 		return
 	}
 	c.matchID = ""
 	c.sendResponse(id, protocol.TypeMatchLeave, protocol.OKPayload{})
-	c.broadcastMatchState(matchID)
+	c.publishState(surviving)
 }
 
 func (c *Client) handleMatchStart(id string) {
@@ -298,11 +299,8 @@ func (c *Client) handleMatchStart(id string) {
 		return
 	}
 	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
-	if err := started.Match.Broadcast(protocol.TypeMatchState, started.Countdown); err != nil {
-		c.log.Error("broadcast countdown state", "client", c.id, "match", c.matchID, "error", err)
-	}
-	if err := started.Match.Broadcast(protocol.TypeMatchState, started.Playing); err != nil {
-		c.log.Error("broadcast playing state", "client", c.id, "match", c.matchID, "error", err)
+	if err := started.PublishStart(time.Now().UnixMilli()); err != nil {
+		c.log.Error("publish start state", "client", c.id, "match", c.matchID, "error", err)
 	}
 }
 
@@ -314,20 +312,19 @@ func (c *Client) leaveMatchOnDisconnect() {
 	}
 	matchID := c.matchID
 	c.matchID = ""
-	if err := c.matches.Leave(matchID, c.id); err != nil {
+	surviving, err := c.matches.Leave(matchID, c.id)
+	if err != nil {
 		return
 	}
-	c.broadcastMatchState(matchID)
+	c.publishState(surviving)
 }
 
-func (c *Client) broadcastMatchState(matchID string) {
-	live, ok := c.matches.Get(matchID)
-	if !ok {
+func (c *Client) publishState(live *match.Match) {
+	if live == nil {
 		return
 	}
-	state := live.State(time.Now().UnixMilli())
-	if err := live.Broadcast(protocol.TypeMatchState, state); err != nil {
-		c.log.Error("broadcast match state", "client", c.id, "match", matchID, "error", err)
+	if err := live.PublishState("", time.Now().UnixMilli()); err != nil {
+		c.log.Error("publish match state", "client", c.id, "match", live.ID(), "error", err)
 	}
 }
 

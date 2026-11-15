@@ -5,8 +5,55 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/game"
+	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
+
+func testServerWorld(teamSize int) game.World {
+	return game.World{
+		Grid:          game.GridSize{Width: 50, Height: 50},
+		BaseCellCount: 4,
+		TeamSize:      teamSize,
+		Constructions: []game.Construction{
+			{ID: "tile", Kind: game.ConstructionBaseTile, CellX: 2, CellY: 1},
+			{ID: "stash", Kind: game.ConstructionStash, CellX: 1, CellY: 1},
+		},
+		Investigation: []game.Cell{{CellX: 5, CellY: 5}},
+		Spawns: []game.PlayerSpawn{
+			{Slot: 0, X: 1.5, Y: 1.5, Facing: game.FacingNorth},
+			{Slot: 1, X: 2.5, Y: 1.5, Facing: game.FacingEast},
+			{Slot: 2, X: 1.5, Y: 2.5, Facing: game.FacingSouth},
+			{Slot: 3, X: 0.5, Y: 1.5, Facing: game.FacingWest},
+		},
+		Resources: game.Resources{
+			Water: game.ResourceState{
+				Pool:  game.ResourcePool{Current: 50, Max: 100},
+				Stash: game.ResourceStash{Current: 1, Max: 29, GPS: 0.36},
+				CPS:   1.32,
+			},
+		},
+	}
+}
+
+func testMatchManager() *match.Manager {
+	cfg := testConfig()
+	return match.NewManager(match.Options{
+		MaxMatches:         cfg.MaxMatches,
+		MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
+		Grid:               cfg.Rules.Grid,
+		GameConfig:         game.DefaultConfig(),
+		GenerateWorld: func(_ int64, teamSize int, _ game.Config) (game.World, error) {
+			return testServerWorld(teamSize), nil
+		},
+		NewSeed: func() (int64, error) { return 1, nil },
+	})
+}
+
+func testServerWithFakeWorld(t *testing.T) *Server {
+	t.Helper()
+	return newTestServerWithManager(t, testConfig(), testMatchManager())
+}
 
 func joinMatch(t *testing.T, conn *websocket.Conn, id string, request protocol.MatchJoinRequest) protocol.MatchJoinResult {
 	t.Helper()
@@ -68,7 +115,7 @@ func startMatch(t *testing.T, conn *websocket.Conn, id string) (protocol.MatchSt
 }
 
 func TestMatchJoinCreateJoinAndLeave(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	host := dialWS(t, s)
 	readWelcome(t, host)
 	hostHello := hello(t, host, "hello-host", "ana")
@@ -117,7 +164,7 @@ func TestMatchJoinCreateJoinAndLeave(t *testing.T) {
 }
 
 func TestMatchJoinFull(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	match, err := s.matches.Create("p_host", "ana", discardSink{})
 	if err != nil {
 		t.Fatalf("create match: %v", err)
@@ -142,7 +189,7 @@ func TestMatchJoinFull(t *testing.T) {
 }
 
 func TestMatchStartEmitsFullState(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	host := dialWS(t, s)
 	readWelcome(t, host)
 	hostHello := hello(t, host, "hello-host", "ana")
@@ -169,33 +216,27 @@ func TestMatchStartEmitsFullState(t *testing.T) {
 	if playing.MatchID != created.MatchID || playing.Schema != protocol.StateSchema {
 		t.Fatalf("unexpected identity %+v", playing)
 	}
-	if playing.HostID != hostHello.PlayerID || playing.TeamSize != 2 || playing.BaseCellCount != 9 {
+	if playing.HostID != hostHello.PlayerID || playing.TeamSize != 2 || playing.BaseCellCount != 4 {
 		t.Fatalf("unexpected start state %+v", playing)
 	}
 	if playing.Grid != (protocol.GridSize{Width: 50, Height: 50}) {
 		t.Fatalf("grid = %+v", playing.Grid)
 	}
-	if len(playing.Players) != 2 || len(playing.Constructions) != 9 || len(playing.Investigation) != 10 {
+	if len(playing.Players) != 2 || len(playing.Constructions) != 2 || len(playing.Investigation) != 1 {
 		t.Fatalf("start collections players=%d constructions=%d investigation=%d",
 			len(playing.Players), len(playing.Constructions), len(playing.Investigation))
 	}
-	for i, construction := range playing.Constructions {
-		if i > 0 {
-			previous := playing.Constructions[i-1]
-			if previous.CellX > construction.CellX ||
-				(previous.CellX == construction.CellX && previous.CellY >= construction.CellY) {
-				t.Fatalf("constructions not sorted at %d: %+v", i, playing.Constructions)
-			}
+	wantConstructions := []protocol.Construction{
+		{ID: "stash", Kind: protocol.ConstructionStash, CellX: 1, CellY: 1},
+		{ID: "tile", Kind: protocol.ConstructionBaseTile, CellX: 2, CellY: 1},
+	}
+	for i, want := range wantConstructions {
+		if playing.Constructions[i] != want {
+			t.Fatalf("construction %d = %+v, want %+v", i, playing.Constructions[i], want)
 		}
 	}
-	stashes := 0
-	for _, construction := range playing.Constructions {
-		if construction.Kind == protocol.ConstructionStash {
-			stashes++
-		}
-	}
-	if stashes != 1 {
-		t.Fatalf("stash count = %d", stashes)
+	if playing.Investigation[0] != (protocol.InvestigationCell{CellX: 5, CellY: 5}) {
+		t.Fatalf("investigation = %+v", playing.Investigation)
 	}
 	if playing.Resources.Water.Pool.Current <= 0 || playing.Resources.Water.Pool.Max <= 0 {
 		t.Fatalf("water not initialized: %+v", playing.Resources.Water)
@@ -221,7 +262,7 @@ func TestMatchStartEmitsFullState(t *testing.T) {
 }
 
 func TestMatchQuickJoin(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	first := dialWS(t, s)
 	readWelcome(t, first)
 	hello(t, first, "hello-first", "ana")
@@ -252,7 +293,7 @@ func TestMatchQuickJoin(t *testing.T) {
 }
 
 func TestMatchJoinAndStartErrors(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	conn := dialWS(t, s)
 	readWelcome(t, conn)
 	hello(t, conn, "hello-1", "ana")
@@ -280,7 +321,7 @@ func TestMatchJoinAndStartErrors(t *testing.T) {
 }
 
 func TestDisconnectMigratesHost(t *testing.T) {
-	s := testServer(t)
+	s := testServerWithFakeWorld(t)
 	host := dialWS(t, s)
 	readWelcome(t, host)
 	hello(t, host, "hello-host", "ana")
