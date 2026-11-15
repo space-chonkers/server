@@ -69,22 +69,29 @@ for Path B; do not edit `internal/game/**`.
 
 ## Path B — Dev B: world simulation, actions, economy, phenomena
 
-Depends only on C2. Use standalone game tests; do not edit server/transport files.
+Depends only on C2. Use standalone game tests. B3 may add narrowly scoped
+`match.join`, `match.start`, `match.leave`, and `match.input` routing plus
+constructor injection needed to exercise movement through the server; do not
+edit other server/transport behavior.
 
 | ID | Product request | Est. | Depends | Done when | Files |
 | --- | --- | --- | --- | --- | --- |
 | B1 | Starting a match creates a valid 50×50 base, stash, goal cells, spawns, and resources | 2 h | C2 | 3×3 fits; 8 tiles + stash; N goals outside start; cardinal spawns; seed deterministic; rates match formulas | `internal/game/{map,state}.go` |
 | B2 | The team can watch four resource pools generate, drain, cap, and end the match | 2 h | B1 | Per-resource formulas; stash overflow lost; any pool 0 loss; `teamSize` frozen; `cps > gps` validated | `internal/game/economy.go` |
-| B3 | Players can move inside the base, overlap freely, and turn to face any cardinal direction | 1.5 h | B1 | Speed/clamp; diagonal/half-speed; axis slide; cannot leave base; facing from last nonzero move; blocked pushes still turn; front cell derives from facing; new tile walkable | `internal/game/movement.go`, `internal/match/input.go` |
+| B3 | Players can move inside the base, overlap freely, and turn to face any cardinal direction | 1.5 h | B1 | Speed/clamp; diagonal/half-speed; axis slide; cannot leave base; facing from last nonzero move; blocked pushes still turn; front cell derives from facing; new tile walkable; `match.input` updates and broadcasts live player state | `internal/game/movement.go`, `internal/match/{gameplay,input,match}.go`, `internal/server/{client,server}.go` |
 | B4 | Players can collect the shared stash and expand the base with a paid tile directly in front | 2 h | B2, B3 | Build only front cell (`not_in_front`); costs/deltas; all error cases; collect clamp/overflow; win/loss precedence; no partial actions | `internal/game/actions.go`, `internal/match/actions.go` |
 | B5 | The server can roll a phenomenon, apply its effect, and let the team fix it at the stash | 2 h | B2, B4 | One active; 0–4 enum; solar GPS −10 points/s to 0 at 10 s; other effects exact; fix at stash/energy; instant food; timer reset; event payload matches C2 API | `internal/game/phenomena.go`, `internal/match/actions.go` |
 
 **Path B critical path:** B1 → B2/B3 → B4 → B5.
 
-**Path B independence rule:** never edit `internal/server/**`,
-`internal/match/{manager,match,join,broadcast}.go`, or `internal/protocol/**`.
-If a wire shape is missing, file a note for Path A; the C2 `game` API is the
-only shared surface.
+**Path B independence rule:** never edit `internal/server/**` except the
+narrow B3 request routing and constructor injection listed above. Never edit
+`internal/match/{manager,join,broadcast}.go` or `internal/protocol/**`.
+`internal/match/match.go` may receive B3 live movement state and reject joins
+after the match enters playing; do not otherwise change its membership or
+lifecycle ownership. If a wire shape is missing,
+file a note for Path A; the C2 `game` API is the only shared surface and stays
+frozen.
 
 ---
 

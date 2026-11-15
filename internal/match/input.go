@@ -7,6 +7,40 @@ import (
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
+func (m *Match) applyInput(
+	playerID string,
+	request *protocol.MatchInputRequest,
+	speedPerSecond float64,
+	elapsedSeconds float64,
+) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.phase != protocol.PhasePlaying {
+		return false, protocol.Errorf(protocol.CodeWrongPhase, "match %s is not playing", m.id)
+	}
+	for slot, member := range m.members {
+		if member == nil || member.PlayerID != playerID {
+			continue
+		}
+		if err := m.initializeMovementPlayersLocked(); err != nil {
+			return false, err
+		}
+		if slot >= len(m.players) {
+			return false, fmt.Errorf("player slot %d has no movement state", slot)
+		}
+		applied, err := ApplyPlayerInputAtSpeed(
+			&m.players[slot], request, m.world.Constructions, speedPerSecond, elapsedSeconds,
+		)
+		if err != nil || !applied {
+			return applied, err
+		}
+		m.tick++
+		return true, nil
+	}
+	return false, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, m.id)
+}
+
 // ApplyPlayerInput applies a newer input snapshot to player. The caller owns
 // synchronization for player and supplies the current walkable base cells.
 // It returns false when the sequence is stale or duplicated.

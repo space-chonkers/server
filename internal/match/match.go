@@ -36,6 +36,8 @@ type Match struct {
 	grid      protocol.GridSize // published while the match is a lobby
 	teamSize  int               // frozen when the match starts
 	world     game.World
+	players   []protocol.PlayerState
+	tick      int64
 }
 
 func newMatch(id string, maxPlayers int) *Match {
