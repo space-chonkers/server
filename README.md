@@ -27,7 +27,8 @@ center; players spawn on the base edge and move only inside the base.
 - **Expansion:** build a base tile on the single empty cell directly in front of
   the character. Costs water/O2/energy; raises water/O2/energy income and
   upkeep; expands the base. No removal.
-- **Phenomena:** none, solar storm (water/O2/energy GPS ×0.9), water leak
+- **Phenomena:** none, solar storm (water/O2/energy GPS −10 percentage points/s,
+  0 after 10 s), water leak
   (water CPS ×1.5), oxygen loss (oxygen CPS ×1.5), rotten food (one-time food
   loss). One at a time; solar/leaks persist until fixed with energy at the
   stash; rotten food is instant.

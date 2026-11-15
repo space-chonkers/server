@@ -142,9 +142,9 @@
         "fixCostEnergy": { "type": "number", "minimum": 0 },
         "effects": {
           "type": "object",
-          "required": ["gpsMultiplier", "resources"],
+          "required": ["gpsReductionPerSecond", "resources"],
           "properties": {
-            "gpsMultiplier": { "type": "number", "minimum": 0, "maximum": 1 },
+            "gpsReductionPerSecond": { "type": "number", "minimum": 0, "maximum": 1 },
             "resources": {
               "type": "array",
               "minItems": 3,

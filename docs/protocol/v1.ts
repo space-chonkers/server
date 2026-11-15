@@ -139,7 +139,8 @@ export interface PhenomenonSolar {
   startedAtMs: number
   fixCostEnergy: number
   effects: {
-    gpsMultiplier: number
+    /** Absolute fraction of base GPS lost per second; 0.10 reaches 0 at 10 s. */
+    gpsReductionPerSecond: number
     resources: SolarResource[]
   }
 }

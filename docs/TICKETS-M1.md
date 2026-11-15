@@ -77,7 +77,7 @@ Depends only on C2. Use standalone game tests; do not edit server/transport file
 | B2 | The team can watch four resource pools generate, drain, cap, and end the match | 2 h | B1 | Per-resource formulas; stash overflow lost; any pool 0 loss; `teamSize` frozen; `cps > gps` validated | `internal/game/economy.go` |
 | B3 | Players can move inside the base, overlap freely, and turn to face any cardinal direction | 1.5 h | B1 | Speed/clamp; diagonal/half-speed; axis slide; cannot leave base; facing from last nonzero move; blocked pushes still turn; front cell derives from facing; new tile walkable | `internal/game/movement.go`, `internal/match/input.go` |
 | B4 | Players can collect the shared stash and expand the base with a paid tile directly in front | 2 h | B2, B3 | Build only front cell (`not_in_front`); costs/deltas; all error cases; collect clamp/overflow; win/loss precedence; no partial actions | `internal/game/actions.go`, `internal/match/actions.go` |
-| B5 | The server can roll a phenomenon, apply its effect, and let the team fix it at the stash | 2 h | B2, B4 | One active; 0–4 enum; effects exact; fix at stash/energy; instant food; timer reset; event payload matches C2 API | `internal/game/phenomena.go`, `internal/match/actions.go` |
+| B5 | The server can roll a phenomenon, apply its effect, and let the team fix it at the stash | 2 h | B2, B4 | One active; 0–4 enum; solar GPS −10 points/s to 0 at 10 s; other effects exact; fix at stash/energy; instant food; timer reset; event payload matches C2 API | `internal/game/phenomena.go`, `internal/match/actions.go` |
 
 **Path B critical path:** B1 → B2/B3 → B4 → B5.
 

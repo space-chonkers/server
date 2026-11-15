@@ -137,13 +137,16 @@ when `type == 0`; default weights are uniform over 0–4. Every roll—including
 | Type | Effect | Fix | Duration |
 | --- | --- | --- | --- |
 | 0 none | — | — | — |
-| 1 solar storm | water/O2/energy GPS × 0.9 | energy | until fixed |
+| 1 solar storm | water/O2/energy GPS −10 percentage points/s (0 after 10 s) | energy | until fixed |
 | 2 water leak | water CPS × 1.5 | energy | until fixed |
 | 3 oxygen loss | oxygen CPS × 1.5 | energy | until fixed |
 | 4 rotten food | food pool − `5 × P`, once | — | one tick |
 
 - Solar affects stash generation; leaks affect the pool. Food is unaffected by
-  solar/leaks.
+  solar/leaks. Solar reduction is **absolute**: 10 percentage points of base GPS
+  per second, floored at 0. After 10 s the affected resources generate nothing
+  until the storm is fixed. The server computes elapsed from simulated time;
+  `startedAtMs` is for UI. `resources.*.gps` is already the effective value.
 - Fix: stand on stash cell, pay `fixCostEnergy`, clear immediately. A fix before
   the economy tick prevents that tick's effect. `match.phenomenon` is reliable.
 - Food loss is instant and never occupies the active slot.
@@ -155,7 +158,7 @@ Active phenomenon object (`match.state`/`match.frame`):
   "type": 1,
   "startedAtMs": 1763222410000,
   "fixCostEnergy": 20,
-  "effects": { "gpsMultiplier": 0.9, "resources": ["water", "oxygen", "energy"] }
+  "effects": { "gpsReductionPerSecond": 0.10, "resources": ["water", "oxygen", "energy"] }
 }
 ```
 
@@ -311,7 +314,7 @@ Builder receives the same construction in the `base.build` response.
   "payload": {
     "matchId": "AB12",
     "action": "started",
-    "phenomenon": { "type": 1, "startedAtMs": 1763222410000, "fixCostEnergy": 20, "effects": { "gpsMultiplier": 0.9, "resources": ["water", "oxygen", "energy"] } }
+    "phenomenon": { "type": 1, "startedAtMs": 1763222410000, "fixCostEnergy": 20, "effects": { "gpsReductionPerSecond": 0.10, "resources": ["water", "oxygen", "energy"] } }
   }
 }
 ```

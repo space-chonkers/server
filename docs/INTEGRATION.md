@@ -95,7 +95,9 @@ Schema paths are `#/$defs/<Name>`. Validate incoming client messages with
 `PhenomenonNone`, `PhenomenonSolar`, `PhenomenonWaterLeak`,
 `PhenomenonOxygenLoss` are active states. `PhenomenonRottenFood` only appears in
 a `match.phenomenon` event with `action: "instant"`. `MatchStats.depletedResource`
-is optional and present on resource-depletion losses.
+is optional and present on resource-depletion losses. Solar
+`effects.gpsReductionPerSecond` is absolute (0.10 = 10 percentage points/s);
+`resources.*.gps` is already the effective value.
 
 ## 6. Validation
 

@@ -113,12 +113,14 @@ event resolution resets the timer.
 | Type | Name | Effect | Fix | Duration |
 | --- | --- | --- | --- | --- |
 | 0 | none | No effect | — | — |
-| 1 | solar storm | Water/oxygen/energy GPS × `SOLAR_GPS_MULTIPLIER` (0.9) | Energy | Until fixed |
+| 1 | solar storm | Water/oxygen/energy GPS −`SOLAR_GPS_REDUCTION_PER_SECOND` (10 percentage points/s; 0 after 10 s) | Energy | Until fixed |
 | 2 | water leak | Water CPS × `WATER_LEAK_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
 | 3 | oxygen loss | Oxygen CPS × `OXYGEN_LOSS_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
 | 4 | rotten food | Food pool − `ROTTEN_FOOD_PER_PLAYER × P`, once | — | One tick |
 
 - Solar storm affects stash generation only; leak/loss affect the pool only.
+  Solar reduction is absolute (percentage points of base GPS per second), not a
+  compounding multiplier; it reaches 0 after 10 s and stays there until fixed.
 - Rotten food subtracts from the pool once, then the active type returns to 0.
 - Fix: stand on the stash cell, pay `fixCostEnergy`, clear immediately. Fixing
   before the economy tick prevents that tick's effect. Insufficient energy is an
@@ -207,7 +209,7 @@ are **not balanced** for the jam yet.
 | `CPS_PER_TILE` | 0.08 | 0.08 | 0.06 | — |
 | `BUILD_COST` | 5 | 5 | 5 | 0 |
 
-Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_MULTIPLIER=0.9`,
+Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_REDUCTION_PER_SECOND=0.10`,
 `WATER_LEAK_CPS_MULTIPLIER=1.5`, `OXYGEN_LOSS_CPS_MULTIPLIER=1.5`,
 `ROTTEN_FOOD_PER_PLAYER=5`, `FIX_COST_ENERGY={solar:20, water:10, oxygen:10}`,
 `PHENOMENON_ROLL_SECONDS=30`, uniform event weights, `INVESTIGATION_COUNT=10`,
