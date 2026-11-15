@@ -25,7 +25,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 	server := &Server{
 		cfg: cfg,
 		log: log,
-		hub: NewHub(log),
+		hub: NewHub(),
 	}
 	server.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -87,7 +87,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := NewClient(s.hub, conn, s.cfg.MaxMessageBytes, s.log)
+	client, err := NewClient(s.hub, conn, s.cfg, s.log)
+	if err != nil {
+		s.log.Error("create client", "error", err)
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "internal error"), time.Now().Add(writeWait))
+		_ = conn.Close()
+		return
+	}
 	s.hub.Add(client)
 	client.Start()
 	s.log.Info("client connected", "client", client.ID(), "remote", r.RemoteAddr, "clients", s.hub.Count())

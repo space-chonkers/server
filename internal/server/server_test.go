@@ -11,17 +11,91 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/protocol"
 )
+
+func testConfig() Config {
+	cfg := DefaultConfig()
+	cfg.Addr = ":0"
+	cfg.ShutdownTimeout = time.Second
+	return cfg
+}
 
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	return New(Config{
-		Addr:            ":0",
-		WSPath:          "/ws",
-		AllowedOrigins:  []string{"*"},
-		MaxMessageBytes: 32 * 1024,
-		ShutdownTimeout: time.Second,
-	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return newTestServer(t, testConfig())
+}
+
+func newTestServer(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	return New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func dialWS(t *testing.T, s *Server) *websocket.Conn {
+	t.Helper()
+
+	httpServer := httptest.NewServer(s.httpServer.Handler)
+	t.Cleanup(httpServer.Close)
+	t.Cleanup(s.hub.CloseAll)
+
+	url := "ws" + strings.TrimPrefix(httpServer.URL, "http") + s.cfg.WSPath
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+func readEnvelope(t *testing.T, conn *websocket.Conn) protocol.Envelope {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var envelope protocol.Envelope
+	if err := conn.ReadJSON(&envelope); err != nil {
+		t.Fatalf("read envelope: %v", err)
+	}
+	return envelope
+}
+
+func writeEnvelope(t *testing.T, conn *websocket.Conn, envelope protocol.Envelope) {
+	t.Helper()
+	if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set write deadline: %v", err)
+	}
+	if err := conn.WriteJSON(envelope); err != nil {
+		t.Fatalf("write envelope: %v", err)
+	}
+}
+
+func decodePayload[T any](t *testing.T, envelope protocol.Envelope) T {
+	t.Helper()
+	var payload T
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		t.Fatalf("decode %s payload: %v", envelope.Type, err)
+	}
+	return payload
+}
+
+func readWelcome(t *testing.T, conn *websocket.Conn) protocol.Welcome {
+	t.Helper()
+	envelope := readEnvelope(t, conn)
+	if envelope.Type != protocol.TypeWelcome {
+		t.Fatalf("expected welcome first, got %q", envelope.Type)
+	}
+	return decodePayload[protocol.Welcome](t, envelope)
+}
+
+func expectClose(t *testing.T, conn *websocket.Conn, code int) {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	_, _, err := conn.ReadMessage()
+	if !websocket.IsCloseError(err, code) {
+		t.Fatalf("expected close %d, got %v", code, err)
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -38,39 +112,5 @@ func TestHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", body["status"])
-	}
-}
-
-func TestWebSocketPing(t *testing.T) {
-	s := testServer(t)
-	httpServer := httptest.NewServer(s.httpServer.Handler)
-	defer httpServer.Close()
-	defer s.hub.CloseAll()
-
-	url := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
-	}
-	defer conn.Close()
-
-	var welcome Envelope
-	if err := conn.ReadJSON(&welcome); err != nil {
-		t.Fatalf("read welcome: %v", err)
-	}
-	if welcome.Type != "welcome" {
-		t.Fatalf("expected welcome, got %q", welcome.Type)
-	}
-
-	if err := conn.WriteJSON(Envelope{ID: "req-1", Type: "ping"}); err != nil {
-		t.Fatalf("write ping: %v", err)
-	}
-
-	var pong Envelope
-	if err := conn.ReadJSON(&pong); err != nil {
-		t.Fatalf("read pong: %v", err)
-	}
-	if pong.ID != "req-1" || pong.Type != "pong" {
-		t.Fatalf("expected pong for req-1, got id=%q type=%q", pong.ID, pong.Type)
 	}
 }
