@@ -118,10 +118,11 @@ scheduler for the "cloud" stack; nothing in the baseline depends on it yet.
 cmd/server/main.go              process startup, signals, graceful shutdown
 internal/server/config.go       env configuration
 internal/server/server.go       HTTP routes, WebSocket upgrade, origin check
-internal/server/hub.go          client registry + fan-out
-internal/server/client.go       per-connection read/write pumps, ping/pong
-internal/server/protocol.go     JSON envelope
-internal/server/server_test.go  hub/protocol tests
+internal/server/hub.go          connected-client registry
+internal/server/client.go       per-connection pumps, welcome/hello handshake
+internal/server/server_test.go  HTTP and shared test helpers
+internal/server/client_test.go  handshake, close, and error tests
+internal/server/config_test.go  default welcome projection test
 Dockerfile                      multi-stage build, non-root runtime, healthcheck
 compose.yaml                    single server service, local and prod-shaped
 ```
@@ -131,8 +132,11 @@ compose.yaml                    single server service, local and prod-shaped
 - `GET /ws` upgrades to WebSocket; `GET /healthz`, `/readyz`, `/` return JSON.
 - JSON envelope in both directions: `{id, type, payload, error}`. Requests carry
   an `id`; responses echo it. Server events omit it.
-- Request types: `ping`, `echo`, `broadcast`. Events: `welcome`, `broadcast`,
-  `error`.
+- Contract handshake: `welcome` first, then `player.hello`; `ping` works before
+  and after identification. Unknown types and invalid payloads keep the socket
+  open; binary frames close `1003`; version mismatch closes `1008`.
+- The typed v1 contract lives in `internal/protocol`; other contract requests are
+  parsed and validated but return `internal` until match handlers land.
 - One reader goroutine and one writer goroutine per connection, bounded send
   queue, drop-with-warning for slow consumers, ping/pong keepalive, read limit.
 - Graceful shutdown closes sockets explicitly because hijacked connections are
@@ -147,7 +151,8 @@ compose.yaml                    single server service, local and prod-shaped
 - No persistence: no Redis, no Postgres, no RabbitMQ.
 - No matchmaking, no party buckets, no leaderboard.
 - No auth or player identity beyond a random connection id.
-- No protocol versioning or schema validation beyond JSON decoding.
+- No full schema validation at runtime; `internal/protocol` validates requests,
+  and clients validate server messages.
 - No metrics/tracing endpoints; logs are `slog` text.
 
 The hub is the seam. Replacing `Hub` with a per-match room registry and pointing
@@ -166,7 +171,7 @@ its fan-out at a broker consumer should not change the transport contract.
 | SortedSet / leaderboard | none | `internal/leaderboard` behind a Redis sorted-set interface |
 | FinishedMatchState | none | Event emitted when a match closes; leaderboard consumer |
 | MatchState | hub state only | `internal/match`: authoritative state machine |
-| PushEventBroker | `Hub.Broadcast` | Per-match fan-out publishing to the bus |
+| PushEventBroker | none (hub registry only) | Per-match fan-out publishing to the bus |
 | Client | `internal/server/client.go` | Unchanged transport; add match subscription |
 
 Suggested package layout for the next session (not created yet):
