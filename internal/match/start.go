@@ -44,9 +44,15 @@ func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
 		return protocol.Errorf(protocol.CodeInternal, "generate match world: %v", err)
 	}
 
-	m.phase = protocol.PhasePlaying
 	m.teamSize = teamSize
 	m.world = world
+	// Frames start immediately, before any input arrives, so movement state
+	// must exist from tick zero.
+	if err := m.initializeMovementPlayersLocked(); err != nil {
+		m.mu.Unlock()
+		return protocol.Errorf(protocol.CodeInternal, "initialize match players: %v", err)
+	}
+	m.phase = protocol.PhasePlaying
 	countdown := m.stateLocked(protocol.PhaseCountdown, now, now)
 	playing := m.stateLocked(protocol.PhasePlaying, 0, now)
 	m.mu.Unlock()

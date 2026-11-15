@@ -83,23 +83,3 @@ func (m *Match) frameLocked() protocol.MatchFrame {
 		Phenomenon:    protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
 	}
 }
-
-// BroadcastFrame publishes the current movement snapshot in match order.
-func (m *Match) BroadcastFrame() error {
-	m.publishMu.Lock()
-	defer m.publishMu.Unlock()
-
-	m.mu.RLock()
-	members := m.membersLocked()
-	frame := m.frameLocked()
-	m.mu.RUnlock()
-
-	event, err := protocol.NewEvent(protocol.TypeMatchFrame, frame)
-	if err != nil {
-		return err
-	}
-	for _, member := range members {
-		member.Sink.Send(event)
-	}
-	return nil
-}

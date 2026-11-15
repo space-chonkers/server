@@ -30,12 +30,16 @@ func testServer(t *testing.T) *Server {
 
 func newTestServer(t *testing.T, cfg Config) *Server {
 	t.Helper()
-	return New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	t.Cleanup(s.stopFrameLoop)
+	return s
 }
 
 func newTestServerWithManager(t *testing.T, cfg Config, matches *match.Manager) *Server {
 	t.Helper()
-	return newWithManager(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), matches)
+	s := newWithManager(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), matches)
+	t.Cleanup(s.stopFrameLoop)
+	return s
 }
 
 func dialWS(t *testing.T, s *Server) *websocket.Conn {
@@ -83,6 +87,21 @@ func decodePayload[T any](t *testing.T, envelope protocol.Envelope) T {
 		t.Fatalf("decode %s payload: %v", envelope.Type, err)
 	}
 	return payload
+}
+
+// readEnvelopeOfType skips lossy match frames while waiting for a reliable
+// message. Frames may be interleaved with any response once a match is playing.
+func readEnvelopeOfType(t *testing.T, conn *websocket.Conn, typ protocol.MessageType) protocol.Envelope {
+	t.Helper()
+	for {
+		envelope := readEnvelope(t, conn)
+		if envelope.Type == typ {
+			return envelope
+		}
+		if envelope.Type != protocol.TypeMatchFrame {
+			t.Fatalf("expected %q (skipping frames), got %q", typ, envelope.Type)
+		}
+	}
 }
 
 func readWelcome(t *testing.T, conn *websocket.Conn) protocol.Welcome {

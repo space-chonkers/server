@@ -107,7 +107,7 @@ func startMatch(t *testing.T, conn *websocket.Conn, id string) (protocol.MatchSt
 	t.Helper()
 	writeEnvelope(t, conn, protocol.Envelope{ID: id, Type: protocol.TypeMatchStart})
 	countdown, playing := expectStartStates(t, conn)
-	envelope := readEnvelope(t, conn)
+	envelope := readEnvelopeOfType(t, conn, protocol.TypeMatchStart)
 	if envelope.Type != protocol.TypeMatchStart || envelope.ID != id {
 		t.Fatalf("expected match.start response %q, got id=%q type=%q", id, envelope.ID, envelope.Type)
 	}

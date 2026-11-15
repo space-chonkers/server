@@ -51,23 +51,9 @@ func (m *Match) lobbyStateLocked(now int64) protocol.MatchState {
 
 func (m *Match) worldStateLocked(phase protocol.Phase, phaseEndsAtMs, now int64) protocol.MatchState {
 	members := m.membersLocked()
-	spawns := make(map[int]game.PlayerSpawn, len(m.world.Spawns))
-	for _, spawn := range m.world.Spawns {
-		spawns[spawn.Slot] = spawn
-	}
-
 	players := make([]protocol.PlayerState, 0, len(members))
 	for _, member := range members {
-		spawn := spawns[member.Slot]
-		players = append(players, protocol.PlayerState{
-			ID:           member.PlayerID,
-			Slot:         member.Slot,
-			Name:         member.Name,
-			Facing:       protocol.Facing(spawn.Facing),
-			X:            spawn.X,
-			Y:            spawn.Y,
-			LastInputSeq: -1,
-		})
+		players = append(players, m.players[member.Slot])
 	}
 
 	constructions := make([]protocol.Construction, 0, len(m.world.Constructions))
@@ -103,6 +89,7 @@ func (m *Match) worldStateLocked(phase protocol.Phase, phaseEndsAtMs, now int64)
 	return protocol.MatchState{
 		MatchID:       m.id,
 		Schema:        protocol.StateSchema,
+		Tick:          m.tick,
 		ServerTimeMs:  now,
 		Phase:         phase,
 		PhaseEndsAtMs: phaseEndsAtMs,

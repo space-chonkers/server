@@ -2,9 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/space-chonkers/server/internal/protocol"
@@ -12,7 +16,7 @@ import (
 
 func expectError(t *testing.T, conn *websocket.Conn, id string, code protocol.ErrorCode) {
 	t.Helper()
-	envelope := readEnvelope(t, conn)
+	envelope := readEnvelopeOfType(t, conn, protocol.TypeError)
 	if envelope.Type != protocol.TypeError {
 		t.Fatalf("expected error, got %q", envelope.Type)
 	}
@@ -30,7 +34,7 @@ func expectError(t *testing.T, conn *websocket.Conn, id string, code protocol.Er
 
 func expectPong(t *testing.T, conn *websocket.Conn, id string) protocol.PongPayload {
 	t.Helper()
-	envelope := readEnvelope(t, conn)
+	envelope := readEnvelopeOfType(t, conn, protocol.TypePong)
 	if envelope.Type != protocol.TypePong {
 		t.Fatalf("expected pong, got %q", envelope.Type)
 	}
@@ -51,6 +55,11 @@ func ping(t *testing.T, conn *websocket.Conn, id string) protocol.PongPayload {
 	t.Helper()
 	writeEnvelope(t, conn, protocol.Envelope{ID: id, Type: protocol.TypePing})
 	return expectPong(t, conn, id)
+}
+
+func readFrame(t *testing.T, conn *websocket.Conn) protocol.MatchFrame {
+	t.Helper()
+	return decodePayload[protocol.MatchFrame](t, readEnvelopeOfType(t, conn, protocol.TypeMatchFrame))
 }
 
 func hello(t *testing.T, conn *websocket.Conn, id, nickname string) protocol.HelloResult {
@@ -251,15 +260,21 @@ func TestMatchInputMovesPlayerThroughServer(t *testing.T) {
 			Move: &protocol.InputMove{X: float64Ptr(1), Y: float64Ptr(0)},
 		}),
 	})
-	frameEnvelope := readEnvelope(t, conn)
-	if frameEnvelope.Type != protocol.TypeMatchFrame {
-		t.Fatalf("expected match.frame, got %q", frameEnvelope.Type)
+	var moved protocol.PlayerState
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		frame := readFrame(t, conn)
+		if len(frame.Players) != 1 {
+			t.Fatalf("frame player count = %d, want 1", len(frame.Players))
+		}
+		if frame.Players[0].LastInputSeq == 0 {
+			moved = frame.Players[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for a frame acknowledging input seq 0")
+		}
 	}
-	frame := decodePayload[protocol.MatchFrame](t, frameEnvelope)
-	if len(frame.Players) != 1 {
-		t.Fatalf("frame player count = %d, want 1", len(frame.Players))
-	}
-	moved := frame.Players[0]
 	if math.Abs(moved.X-initial.X-DefaultConfig().Rules.PlayerSpeed/DefaultConfig().TickRate) > 1e-12 ||
 		moved.Y != initial.Y {
 		t.Fatalf("input did not move east from %+v to %+v", initial, moved)
@@ -379,6 +394,104 @@ func TestOversizeFrameClosesTooBig(t *testing.T) {
 		t.Fatalf("write oversize frame: %v", err)
 	}
 	expectClose(t, conn, websocket.CloseMessageTooBig)
+}
+
+func newQueueClient(t *testing.T) *Client {
+	t.Helper()
+	client, err := NewClient(
+		NewHub(), nil, nil, DefaultConfig(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	return client
+}
+
+func TestFrameQueueDropsOldestWithoutBlocking(t *testing.T) {
+	client := newQueueClient(t)
+	for i := 0; i < frameQueueSize*10; i++ {
+		client.Send(protocol.Envelope{
+			Type:    protocol.TypeMatchFrame,
+			Payload: json.RawMessage(fmt.Sprintf(`{"n":%d}`, i)),
+		})
+	}
+
+	if got := len(client.frames); got != frameQueueSize {
+		t.Fatalf("frame queue length = %d, want %d", got, frameQueueSize)
+	}
+	message := <-client.frames
+	var envelope protocol.Envelope
+	if err := json.Unmarshal(message, &envelope); err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	var frame struct {
+		N int `json:"n"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &frame); err != nil {
+		t.Fatalf("decode frame payload: %v", err)
+	}
+	if frame.N != frameQueueSize*10-frameQueueSize {
+		t.Fatalf("oldest frame n = %d, want %d", frame.N, frameQueueSize*10-frameQueueSize)
+	}
+}
+
+func TestReliableMessagesBypassFrameQueue(t *testing.T) {
+	client := newQueueClient(t)
+	for i := 0; i < frameQueueSize*2; i++ {
+		client.Send(protocol.Envelope{Type: protocol.TypeMatchFrame, Payload: json.RawMessage(`{}`)})
+	}
+	for _, typ := range []protocol.MessageType{
+		protocol.TypeMatchState,
+		protocol.TypeMatchBuild,
+		protocol.TypeMatchPhenomenon,
+	} {
+		client.Send(protocol.Envelope{Type: typ, Payload: json.RawMessage(`{}`)})
+	}
+
+	if got := len(client.frames); got != frameQueueSize {
+		t.Fatalf("frame queue length = %d, want %d", got, frameQueueSize)
+	}
+	if got := len(client.control); got != 3 {
+		t.Fatalf("control queue length = %d, want 3", got)
+	}
+	for _, typ := range []protocol.MessageType{
+		protocol.TypeMatchState,
+		protocol.TypeMatchBuild,
+		protocol.TypeMatchPhenomenon,
+	} {
+		var envelope protocol.Envelope
+		if err := json.Unmarshal(<-client.control, &envelope); err != nil {
+			t.Fatalf("decode %s: %v", typ, err)
+		}
+		if envelope.Type != typ {
+			t.Fatalf("control message = %q, want %q", envelope.Type, typ)
+		}
+	}
+}
+
+func TestControlQueueOverflowClosesBackpressure(t *testing.T) {
+	client := newQueueClient(t)
+	for i := 0; i < controlQueueSize; i++ {
+		client.Send(protocol.Envelope{Type: protocol.TypeMatchState, Payload: json.RawMessage(`{}`)})
+	}
+	if got := len(client.control); got != controlQueueSize {
+		t.Fatalf("control queue length = %d, want %d", got, controlQueueSize)
+	}
+
+	client.Send(protocol.Envelope{Type: protocol.TypeMatchState, Payload: json.RawMessage(`{}`)})
+
+	select {
+	case <-client.done:
+	default:
+		t.Fatal("control queue overflow did not close the client")
+	}
+	if client.closeCode != websocket.CloseInternalServerErr {
+		t.Fatalf("close code = %d, want %d", client.closeCode, websocket.CloseInternalServerErr)
+	}
+	if got := len(client.control); got != controlQueueSize {
+		t.Fatalf("control queue length after overflow = %d, want %d", got, controlQueueSize)
+	}
 }
 
 func mustRaw(t *testing.T, value any) []byte {

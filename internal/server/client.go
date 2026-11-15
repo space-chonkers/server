@@ -19,6 +19,13 @@ const (
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
 	writeWait  = 10 * time.Second
+
+	// controlQueueSize bounds reliable messages. Overflow closes the socket
+	// with 1011 instead of dropping a response or state transition.
+	controlQueueSize = 32
+	// frameQueueSize bounds lossy match frames. The oldest frame is discarded
+	// so a slow reader cannot block the match tick.
+	frameQueueSize = 4
 )
 
 // Client is one WebSocket connection. Reads happen in one goroutine and writes
@@ -30,7 +37,8 @@ type Client struct {
 	conn        *websocket.Conn
 	cfg         Config
 	log         *slog.Logger
-	send        chan []byte
+	control     chan []byte // reliable responses and events
+	frames      chan []byte // lossy match frames
 	done        chan struct{}
 	closeOnce   sync.Once
 	closeCode   int
@@ -50,7 +58,8 @@ func NewClient(hub *Hub, matches *match.Manager, conn *websocket.Conn, cfg Confi
 		conn:    conn,
 		cfg:     cfg,
 		log:     log,
-		send:    make(chan []byte, 32),
+		control: make(chan []byte, controlQueueSize),
+		frames:  make(chan []byte, frameQueueSize),
 		done:    make(chan struct{}),
 	}, nil
 }
@@ -58,6 +67,16 @@ func NewClient(hub *Hub, matches *match.Manager, conn *websocket.Conn, cfg Confi
 func (c *Client) ID() string { return c.id }
 
 func (c *Client) identified() bool { return c.nickname != "" }
+
+// closing reports whether the client has started shutting down.
+func (c *Client) closing() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
 
 // identify records the player's name. It returns false when already identified.
 func (c *Client) identify(nickname string) bool {
@@ -76,14 +95,20 @@ func (c *Client) Start() {
 	go c.readPump()
 }
 
-// Send queues one server message for the write loop.
+// Send queues one server message for the write loop. Frames are lossy and may
+// be dropped; every other message is reliable and may only be lost by closing
+// the connection.
 func (c *Client) Send(envelope protocol.Envelope) {
 	message, err := json.Marshal(envelope)
 	if err != nil {
 		c.log.Error("encode server message", "client", c.id, "type", envelope.Type, "error", err)
 		return
 	}
-	c.enqueue(message)
+	if envelope.Type == protocol.TypeMatchFrame {
+		c.enqueueFrame(message)
+		return
+	}
+	c.enqueueControl(message)
 }
 
 // Close closes the connection normally.
@@ -143,14 +168,35 @@ func (c *Client) sendProtocolError(id string, err error) {
 	c.sendError(id, code, message)
 }
 
-func (c *Client) enqueue(message []byte) {
+func (c *Client) enqueueControl(message []byte) {
 	// A message queued while the client is closing may be dropped. The close
 	// frame ordering is the only guarantee the protocol needs.
 	select {
-	case c.send <- message:
+	case c.control <- message:
 	case <-c.done:
 	default:
-		c.log.Warn("dropping message for slow client", "client", c.id)
+		c.log.Warn("closing client for control backpressure", "client", c.id)
+		c.closeWith(websocket.CloseInternalServerErr, "control queue full")
+	}
+}
+
+// enqueueFrame keeps only the newest frames so a slow reader cannot apply
+// backpressure to the match tick.
+func (c *Client) enqueueFrame(message []byte) {
+	select {
+	case c.frames <- message:
+		return
+	default:
+	}
+	// Discard the oldest frame to make room. Both sends are non-blocking; a
+	// concurrent writer may free the slot first.
+	select {
+	case <-c.frames:
+	default:
+	}
+	select {
+	case c.frames <- message:
+	default:
 	}
 }
 
@@ -168,11 +214,17 @@ func (c *Client) readPump() {
 	})
 
 	for {
+		if c.closing() {
+			return
+		}
 		messageType, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				c.log.Warn("websocket read error", "client", c.id, "error", err)
 			}
+			return
+		}
+		if c.closing() {
 			return
 		}
 		if messageType != websocket.TextMessage {
@@ -195,7 +247,16 @@ func (c *Client) writePump() {
 
 	for {
 		select {
-		case message := <-c.send:
+		case message := <-c.control:
+			if err := c.write(websocket.TextMessage, message); err != nil {
+				c.Close()
+				return
+			}
+		case message := <-c.frames:
+			// Deliver anything reliable that was queued before this frame.
+			if !c.flushControl() {
+				return
+			}
 			if err := c.write(websocket.TextMessage, message); err != nil {
 				c.Close()
 				return
@@ -212,20 +273,29 @@ func (c *Client) writePump() {
 	}
 }
 
-// flushAndClose drains anything already queued so an error is delivered before
-// the close frame that follows it.
-func (c *Client) flushAndClose() {
+// flushControl writes queued reliable messages. It reports false when the
+// connection failed and the writer must stop.
+func (c *Client) flushControl() bool {
 	for {
 		select {
-		case message := <-c.send:
+		case message := <-c.control:
 			if err := c.write(websocket.TextMessage, message); err != nil {
-				return
+				c.Close()
+				return false
 			}
 		default:
-			_ = c.write(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, c.closeReason))
-			return
+			return true
 		}
 	}
+}
+
+// flushAndClose drains reliable messages so an error is delivered before the
+// close frame that follows it. Lossy frames are discarded.
+func (c *Client) flushAndClose() {
+	if !c.flushControl() {
+		return
+	}
+	_ = c.write(websocket.CloseMessage, websocket.FormatCloseMessage(c.closeCode, c.closeReason))
 }
 
 func (c *Client) write(messageType int, data []byte) error {
