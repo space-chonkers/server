@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -25,6 +26,7 @@ const (
 type Client struct {
 	id          string
 	hub         *Hub
+	matches     *match.Manager
 	conn        *websocket.Conn
 	cfg         Config
 	log         *slog.Logger
@@ -36,19 +38,20 @@ type Client struct {
 	nickname    string // set once by the read pump; never empty after hello
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
+func NewClient(hub *Hub, matches *match.Manager, conn *websocket.Conn, cfg Config, log *slog.Logger) (*Client, error) {
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		id:   id,
-		hub:  hub,
-		conn: conn,
-		cfg:  cfg,
-		log:  log,
-		send: make(chan []byte, 32),
-		done: make(chan struct{}),
+		id:      id,
+		hub:     hub,
+		matches: matches,
+		conn:    conn,
+		cfg:     cfg,
+		log:     log,
+		send:    make(chan []byte, 32),
+		done:    make(chan struct{}),
 	}, nil
 }
 
@@ -153,6 +156,7 @@ func (c *Client) enqueue(message []byte) {
 
 func (c *Client) readPump() {
 	defer func() {
+		c.leaveMatchOnDisconnect()
 		c.hub.Remove(c)
 		c.log.Info("client disconnected", "client", c.id, "clients", c.hub.Count())
 	}()
@@ -180,58 +184,6 @@ func (c *Client) readPump() {
 			return
 		}
 	}
-}
-
-func (c *Client) handleMessage(message []byte) (closeCode int, closeReason string) {
-	envelope, err := protocol.DecodeEnvelope(message)
-	if err != nil {
-		c.sendProtocolError(envelope.ID, err)
-		return 0, ""
-	}
-
-	request, err := envelope.DecodeRequest()
-	if err != nil {
-		c.sendProtocolError(envelope.ID, err)
-		if protocol.CodeOf(err) == protocol.CodeProtocolVersionMismatch {
-			return websocket.ClosePolicyViolation, "protocol version mismatch"
-		}
-		return 0, ""
-	}
-
-	c.handleRequest(envelope, request)
-	return 0, ""
-}
-
-func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Request) {
-	if !c.identified() && !allowedBeforeHello(request.RequestType()) {
-		c.sendError(envelope.ID, protocol.CodeNotIdentified, "send player.hello first")
-		return
-	}
-
-	switch request := request.(type) {
-	case *protocol.PingRequest:
-		c.sendResponse(envelope.ID, protocol.TypePong, protocol.PongPayload{
-			ClientTimeMs: request.ClientTimeMs,
-			ServerTimeMs: time.Now().UnixMilli(),
-			Tick:         0,
-		})
-	case *protocol.PlayerHelloRequest:
-		if !c.identify(request.Nickname) {
-			c.sendError(envelope.ID, protocol.CodeAlreadyIdentified, "player is already identified")
-			return
-		}
-		c.sendResponse(envelope.ID, protocol.TypePlayerHello, protocol.HelloResult{
-			PlayerID: c.id,
-			Nickname: request.Nickname,
-		})
-	default:
-		// A3/A4 replace this branch with match lifecycle handlers.
-		c.sendError(envelope.ID, protocol.CodeInternal, fmt.Sprintf("%s is not implemented yet", request.RequestType()))
-	}
-}
-
-func allowedBeforeHello(typ protocol.MessageType) bool {
-	return typ == protocol.TypePing || typ == protocol.TypePlayerHello
 }
 
 func (c *Client) writePump() {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/match"
 )
 
@@ -24,14 +25,15 @@ type Server struct {
 }
 
 func New(cfg Config, log *slog.Logger) *Server {
+	return newWithManager(cfg, log, match.NewManager(matchOptions(cfg)))
+}
+
+func newWithManager(cfg Config, log *slog.Logger, matches *match.Manager) *Server {
 	server := &Server{
-		cfg: cfg,
-		log: log,
-		hub: NewHub(),
-		matches: match.NewManager(match.Options{
-			MaxMatches:         cfg.MaxMatches,
-			MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
-		}),
+		cfg:     cfg,
+		log:     log,
+		hub:     NewHub(),
+		matches: matches,
 	}
 	server.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -51,6 +53,19 @@ func New(cfg Config, log *slog.Logger) *Server {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return server
+}
+
+func matchOptions(cfg Config) match.Options {
+	gameConfig := game.DefaultConfig()
+	if cfg.Rules.InvestigationCount > 0 {
+		gameConfig.InvestigationCount = cfg.Rules.InvestigationCount
+	}
+	return match.Options{
+		MaxMatches:         cfg.MaxMatches,
+		MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,
+		Grid:               cfg.Rules.Grid,
+		GameConfig:         gameConfig,
+	}
 }
 
 func (s *Server) ListenAndServe() error {
@@ -94,7 +109,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(s.hub, conn, s.cfg, s.log)
+	client, err := NewClient(s.hub, s.matches, conn, s.cfg, s.log)
 	if err != nil {
 		s.log.Error("create client", "error", err)
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "internal error"), time.Now().Add(writeWait))

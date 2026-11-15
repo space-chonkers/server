@@ -5,10 +5,13 @@ package match
 import (
 	"sync"
 
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
-// Sink delivers one server message to a client.
+// Sink delivers one server message to a client. Send must not block or call
+// back into the match; state publication holds the per-match order while
+// calling it.
 type Sink interface {
 	Send(protocol.Envelope)
 }
@@ -21,12 +24,18 @@ type Member struct {
 	Sink     Sink
 }
 
-// Match is one lobby. mu guards members and hostSlot.
+// Match is one lobby or running match. mu guards membership and the start
+// snapshot; publishMu orders state publication against membership changes.
 type Match struct {
-	mu       sync.RWMutex
-	id       string
-	members  []*Member // index == slot; nil is free
-	hostSlot int       // -1 when the match is empty
+	mu        sync.RWMutex
+	publishMu sync.Mutex
+	id        string
+	members   []*Member // index == slot; nil is free
+	hostSlot  int       // -1 when the match is empty
+	phase     protocol.Phase
+	grid      protocol.GridSize // published while the match is a lobby
+	teamSize  int               // frozen when the match starts
+	world     game.World
 }
 
 func newMatch(id string, maxPlayers int) *Match {
@@ -34,6 +43,7 @@ func newMatch(id string, maxPlayers int) *Match {
 		id:       id,
 		members:  make([]*Member, maxPlayers),
 		hostSlot: -1,
+		phase:    protocol.PhaseLobby,
 	}
 }
 
@@ -45,7 +55,11 @@ func (m *Match) ID() string { return m.id }
 func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.addLocked(playerID, name, sink)
+}
 
+// addLocked places a player in the lowest free slot. The caller holds mu.
+func (m *Match) addLocked(playerID, name string, sink Sink) (int, error) {
 	free := -1
 	for slot, member := range m.members {
 		if member == nil {
@@ -57,6 +71,9 @@ func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 		if member.PlayerID == playerID {
 			return 0, protocol.Errorf(protocol.CodeAlreadyInMatch, "player %s is already in match %s", playerID, m.id)
 		}
+	}
+	if m.phase != protocol.PhaseLobby {
+		return 0, protocol.Errorf(protocol.CodeMatchInProgress, "match %s has already started", m.id)
 	}
 	if free < 0 {
 		return 0, protocol.Errorf(protocol.CodeMatchFull, "match %s is full", m.id)
@@ -74,7 +91,11 @@ func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 func (m *Match) remove(playerID string) (removed, empty bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.removeLocked(playerID)
+}
 
+// removeLocked drops a player. The caller holds mu.
+func (m *Match) removeLocked(playerID string) (removed, empty bool) {
 	for slot, member := range m.members {
 		if member == nil || member.PlayerID != playerID {
 			continue
@@ -98,18 +119,17 @@ func (m *Match) remove(playerID string) (removed, empty bool) {
 func (m *Match) has(playerID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	for _, member := range m.members {
-		if member != nil && member.PlayerID == playerID {
-			return true
-		}
-	}
-	return false
+	return m.hasLocked(playerID)
 }
 
-// available reports whether another player fits.
-func (m *Match) available() bool {
+// joinable reports whether the match is still in its lobby and has a free
+// slot.
+func (m *Match) joinable() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.phase != protocol.PhaseLobby {
+		return false
+	}
 	for _, member := range m.members {
 		if member == nil {
 			return true
@@ -132,7 +152,18 @@ func (m *Match) empty() bool {
 func (m *Match) Members() []Member {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.membersLocked()
+}
 
+// HostID returns the current host, or an empty string when the match is empty.
+func (m *Match) HostID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.hostIDLocked()
+}
+
+// membersLocked returns a copy in slot order. The caller holds mu.
+func (m *Match) membersLocked() []Member {
 	members := make([]Member, 0, len(m.members))
 	for _, member := range m.members {
 		if member != nil {
@@ -142,26 +173,20 @@ func (m *Match) Members() []Member {
 	return members
 }
 
-// HostID returns the current host, or an empty string when the match is empty.
-func (m *Match) HostID() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// hostIDLocked returns the host id, or an empty string. The caller holds mu.
+func (m *Match) hostIDLocked() string {
 	if m.hostSlot < 0 {
 		return ""
 	}
 	return m.members[m.hostSlot].PlayerID
 }
 
-// Broadcast delivers one event to every member's sink. It copies members and
-// sends outside the lock so a sink cannot block membership changes. The error
-// covers event construction only; delivery is best-effort.
-func (m *Match) Broadcast(typ protocol.MessageType, payload any) error {
-	event, err := protocol.NewEvent(typ, payload)
-	if err != nil {
-		return err
+// hasLocked reports whether playerID is a member. The caller holds mu.
+func (m *Match) hasLocked(playerID string) bool {
+	for _, member := range m.members {
+		if member != nil && member.PlayerID == playerID {
+			return true
+		}
 	}
-	for _, member := range m.Members() {
-		member.Sink.Send(event)
-	}
-	return nil
+	return false
 }

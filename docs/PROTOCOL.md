@@ -65,6 +65,18 @@ loop: match.input / stash.collect / base.build / phenomenon.fix
 end: match.ended
 ```
 
+- `match.join` is lobby-only. A started match returns `match_in_progress`.
+  Quickjoin skips full and started lobbies and creates a new lobby when none is
+  joinable.
+- The joiner gets its lobby state in the `match.join` response; other members
+  get a `match.state` event. On leave or disconnect, remaining members get a
+  `match.state` event and the host migrates to the lowest occupied slot.
+- `match.start` is host-only and lobby-only. M1 sends a zero-length `countdown`
+  state immediately followed by the `playing` state; both carry the same world
+  snapshot. Countdown UI and timing are M2. The states are published before the
+  host receives the `match.start` OK response.
+- Leaving during play keeps `teamSize` frozen at its starting value.
+
 Close codes: `1000` normal, `1001` shutdown, `1003` binary frame, `1008` policy
 (version), `1009` too large, `1011` internal/backpressure, `1013` capacity.
 
@@ -274,7 +286,8 @@ frozen at `match.start` and drives pool caps, CPS, stash caps, and food GPS; it
 does not decrease when a player leaves. `phase` is
 `lobby|countdown|playing`; `match.ended` is terminal. In lobby,
 `constructions`/`investigation` are empty, resources zero, `baseCellCount=0`,
-and `teamSize` is the current lobby player count.
+and `teamSize` is the current lobby player count. Lobby players use `x/y/vx/vy`
+0, `facing:"north"`, and `lastInputSeq:-1` until the match starts.
 
 ### `match.frame` (lossy, 15 Hz)
 
@@ -359,7 +372,8 @@ client-side.
 
 Errors keep the socket open except version mismatch and capacity refusal.
 `payload.message` is human-readable; `payload.missing` may list resources for
-`insufficient_resources`.
+`insufficient_resources`. `match_in_progress` rejects a join to a started match;
+`wrong_phase` rejects a host start outside the lobby.
 
 ## 9. Limits and backpressure
 
