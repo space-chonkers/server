@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -30,6 +31,11 @@ func testServer(t *testing.T) *Server {
 func newTestServer(t *testing.T, cfg Config) *Server {
 	t.Helper()
 	return New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func newTestServerWithManager(t *testing.T, cfg Config, matches *match.Manager) *Server {
+	t.Helper()
+	return newWithManager(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), matches)
 }
 
 func dialWS(t *testing.T, s *Server) *websocket.Conn {
@@ -122,7 +128,7 @@ func (discardSink) Send(protocol.Envelope) {}
 
 func TestShutdownClosesMatches(t *testing.T) {
 	s := testServer(t)
-	if _, err := s.matches.Create("p_1", "ana", discardSink{}); err != nil {
+	if _, err := s.matches.Create("create", "p_1", "ana", discardSink{}, 0); err != nil {
 		t.Fatalf("create match: %v", err)
 	}
 	if s.matches.Count() != 1 {
