@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -56,8 +57,10 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 		c.handleMatchLeave(envelope.ID)
 	case *protocol.MatchStartRequest:
 		c.handleMatchStart(envelope.ID)
+	case *protocol.MatchInputRequest:
+		c.handleMatchInput(envelope.ID, request)
 	default:
-		// A5 replaces this branch with movement and action handlers.
+		// Later match actions are not implemented yet.
 		c.sendError(envelope.ID, protocol.CodeInternal, fmt.Sprintf("%s is not implemented yet", request.RequestType()))
 	}
 }
@@ -92,6 +95,26 @@ func (c *Client) handleMatchStart(id string) {
 		return
 	}
 	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
+}
+
+func (c *Client) handleMatchInput(id string, request *protocol.MatchInputRequest) {
+	if c.cfg.TickRate <= 0 || math.IsNaN(c.cfg.TickRate) || math.IsInf(c.cfg.TickRate, 0) {
+		c.sendError(id, protocol.CodeInternal, "server tick rate must be finite and positive")
+		return
+	}
+	joined, applied, err := c.matches.ApplyPlayerInput(
+		c.id, request, c.cfg.Rules.PlayerSpeed, 1/c.cfg.TickRate,
+	)
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	if !applied {
+		return
+	}
+	if err := joined.BroadcastFrame(); err != nil {
+		c.log.Error("broadcast match frame", "match", joined.ID(), "error", err)
+	}
 }
 
 // leaveMatchOnDisconnect removes a disconnected player and publishes the
