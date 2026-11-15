@@ -109,12 +109,7 @@ func (m *Match) remove(playerID string) (removed, empty bool) {
 func (m *Match) has(playerID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	for _, member := range m.members {
-		if member != nil && member.PlayerID == playerID {
-			return true
-		}
-	}
-	return false
+	return m.hasLocked(playerID)
 }
 
 // joinable reports whether the match is still in its lobby and has a free
@@ -133,13 +128,6 @@ func (m *Match) joinable() bool {
 	return false
 }
 
-// Phase returns the current lifecycle phase.
-func (m *Match) Phase() protocol.Phase {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.phase
-}
-
 // empty reports whether the match has no members. The caller holds mu.
 func (m *Match) empty() bool {
 	for _, member := range m.members {
@@ -154,24 +142,14 @@ func (m *Match) empty() bool {
 func (m *Match) Members() []Member {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	members := make([]Member, 0, len(m.members))
-	for _, member := range m.members {
-		if member != nil {
-			members = append(members, *member)
-		}
-	}
-	return members
+	return m.membersLocked()
 }
 
 // HostID returns the current host, or an empty string when the match is empty.
 func (m *Match) HostID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.hostSlot < 0 {
-		return ""
-	}
-	return m.members[m.hostSlot].PlayerID
+	return m.hostIDLocked()
 }
 
 // Broadcast delivers one event to every member's sink. It copies members and

@@ -56,21 +56,26 @@ func testWorld(teamSize int) game.World {
 	}
 }
 
-func newTestManager(t *testing.T, generate WorldGenerator) *Manager {
-	t.Helper()
-	if generate == nil {
-		generate = func(_ int64, teamSize int, _ game.Config) (game.World, error) {
-			return testWorld(teamSize), nil
-		}
-	}
-	return NewManager(Options{
+func testOptions() Options {
+	return Options{
 		MaxMatches:         16,
 		MaxPlayersPerMatch: 4,
 		Grid:               protocol.GridSize{Width: 50, Height: 50},
 		GameConfig:         game.DefaultConfig(),
-		GenerateWorld:      generate,
-		NewSeed:            func() (int64, error) { return 42, nil },
-	})
+		GenerateWorld: func(_ int64, teamSize int, _ game.Config) (game.World, error) {
+			return testWorld(teamSize), nil
+		},
+		NewSeed: func() (int64, error) { return 42, nil },
+	}
+}
+
+func newTestManager(t *testing.T, generate WorldGenerator) *Manager {
+	t.Helper()
+	opts := testOptions()
+	if generate != nil {
+		opts.GenerateWorld = generate
+	}
+	return NewManager(opts)
 }
 
 func mustStart(t *testing.T, manager *Manager, matchID, playerID string) *Started {
@@ -217,10 +222,6 @@ func TestStartReturnsCountdownThenPlayingState(t *testing.T) {
 	if state.Phenomenon.Value.PhenomenonType() != protocol.PhenomenonNoneType {
 		t.Fatalf("phenomenon = %v", state.Phenomenon.Value)
 	}
-
-	if created.Phase() != protocol.PhasePlaying {
-		t.Fatalf("phase = %q", created.Phase())
-	}
 }
 
 func TestStartRequiresHostAndLobby(t *testing.T) {
@@ -256,9 +257,6 @@ func TestStartFailureLeavesLobby(t *testing.T) {
 	if _, err := manager.Start(created.ID(), "p_1"); protocol.CodeOf(err) != protocol.CodeInternal {
 		t.Fatalf("expected internal, got %v", err)
 	}
-	if created.Phase() != protocol.PhaseLobby {
-		t.Fatalf("phase after failure = %q", created.Phase())
-	}
 	if state := created.State(1); state.Phase != protocol.PhaseLobby {
 		t.Fatalf("state after failure = %+v", state)
 	}
@@ -290,14 +288,15 @@ func TestQuickJoinSkipsStartedMatches(t *testing.T) {
 	if joined == started {
 		t.Fatal("quickjoin joined a started match")
 	}
-	if joined.Phase() != protocol.PhaseLobby || joined.HostID() != "p_2" {
+	if joined.State(1).Phase != protocol.PhaseLobby || joined.HostID() != "p_2" {
 		t.Fatalf("unexpected quickjoin match %+v", joined.Members())
 	}
 }
 
 func TestQuickJoinIsAtomic(t *testing.T) {
-	manager := newTestManager(t, nil)
-	manager.opts.MaxPlayersPerMatch = 2
+	opts := testOptions()
+	opts.MaxPlayersPerMatch = 2
+	manager := NewManager(opts)
 
 	const players = 10
 	var wait sync.WaitGroup

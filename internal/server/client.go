@@ -257,14 +257,15 @@ func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) 
 		return
 	}
 
-	c.matchID = joined.ID()
+	matchID := joined.ID()
+	c.matchID = matchID
 	state := joined.State(time.Now().UnixMilli())
 	c.sendResponse(id, protocol.TypeMatchJoin, protocol.MatchJoinResult{
-		MatchID: joined.ID(),
+		MatchID: matchID,
 		State:   state,
 	})
 	if err := joined.BroadcastExcept(c.id, protocol.TypeMatchState, state); err != nil {
-		c.log.Error("broadcast join state", "client", c.id, "match", joined.ID(), "error", err)
+		c.log.Error("broadcast join state", "client", c.id, "match", matchID, "error", err)
 	}
 }
 
@@ -320,12 +321,12 @@ func (c *Client) leaveMatchOnDisconnect() {
 }
 
 func (c *Client) broadcastMatchState(matchID string) {
-	joined, ok := c.matches.Get(matchID)
+	live, ok := c.matches.Get(matchID)
 	if !ok {
 		return
 	}
-	state := joined.State(time.Now().UnixMilli())
-	if err := joined.Broadcast(protocol.TypeMatchState, state); err != nil {
+	state := live.State(time.Now().UnixMilli())
+	if err := live.Broadcast(protocol.TypeMatchState, state); err != nil {
 		c.log.Error("broadcast match state", "client", c.id, "match", matchID, "error", err)
 	}
 }

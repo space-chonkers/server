@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -122,7 +123,7 @@ func TestMatchJoinFull(t *testing.T) {
 		t.Fatalf("create match: %v", err)
 	}
 	for i := 1; i < 4; i++ {
-		playerID := "p_" + string(rune('0'+i))
+		playerID := fmt.Sprintf("p_%d", i)
 		if _, err := s.matches.Join(match.ID(), playerID, playerID, discardSink{}); err != nil {
 			t.Fatalf("join %s: %v", playerID, err)
 		}

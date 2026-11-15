@@ -32,7 +32,7 @@ func (m *Match) State(now int64) protocol.MatchState {
 }
 
 // start validates the host and phase, generates the world, and freezes the
-// starting team. The caller holds the match lock.
+// starting team.
 func (m *Match) start(
 	playerID string,
 	seed SeedSource,
@@ -176,15 +176,11 @@ func worldState(
 	players := make([]protocol.PlayerState, 0, len(members))
 	for _, member := range members {
 		spawn := spawns[member.Slot]
-		facing := protocol.Facing(spawn.Facing)
-		if facing == "" {
-			facing = protocol.FacingNorth
-		}
 		players = append(players, protocol.PlayerState{
 			ID:           member.PlayerID,
 			Slot:         member.Slot,
 			Name:         member.Name,
-			Facing:       facing,
+			Facing:       protocol.Facing(spawn.Facing),
 			X:            spawn.X,
 			Y:            spawn.Y,
 			VX:           0,
