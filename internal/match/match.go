@@ -35,6 +35,8 @@ type Match struct {
 	phase     protocol.Phase
 	grid      protocol.GridSize // published while the match is a lobby
 	teamSize  int               // frozen when the match starts
+	startedAt int64
+	ended     *protocol.MatchEnded
 	world     game.World
 	players   []protocol.PlayerState
 	tick      int64
