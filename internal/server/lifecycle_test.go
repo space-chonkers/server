@@ -166,13 +166,13 @@ func TestMatchJoinCreateJoinAndLeave(t *testing.T) {
 
 func TestMatchJoinFull(t *testing.T) {
 	s := testServerWithFakeWorld(t)
-	match, err := s.matches.Create("p_host", "ana", discardSink{})
+	match, err := s.matches.Create("create", "p_host", "ana", discardSink{}, 0)
 	if err != nil {
 		t.Fatalf("create match: %v", err)
 	}
 	for i := 1; i < 4; i++ {
 		playerID := fmt.Sprintf("p_%d", i)
-		if _, err := s.matches.Join(match.ID(), playerID, playerID, discardSink{}); err != nil {
+		if _, err := s.matches.Join("join", match.ID(), playerID, playerID, discardSink{}, 0); err != nil {
 			t.Fatalf("join %s: %v", playerID, err)
 		}
 	}

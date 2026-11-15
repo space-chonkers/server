@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/space-chonkers/server/internal/match"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -64,61 +63,41 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 }
 
 func (c *Client) handleMatchJoin(id string, request *protocol.MatchJoinRequest) {
-	var joined *match.Match
+	now := time.Now().UnixMilli()
 	var err error
 	switch {
 	case request.Create != nil && *request.Create:
-		joined, err = c.matches.Create(c.id, c.nickname, c)
+		_, err = c.matches.Create(id, c.id, c.nickname, c, now)
 	case request.MatchID != nil:
-		joined, err = c.matches.Join(*request.MatchID, c.id, c.nickname, c)
+		_, err = c.matches.Join(id, *request.MatchID, c.id, c.nickname, c, now)
 	default:
-		joined, err = c.matches.JoinAny(c.id, c.nickname, c)
+		_, err = c.matches.JoinAny(id, c.id, c.nickname, c, now)
 	}
 	if err != nil {
 		c.sendProtocolError(id, err)
-		return
-	}
-
-	if err := joined.PublishJoin(id, c.id, time.Now().UnixMilli()); err != nil {
-		c.log.Error("publish join", "client", c.id, "match", joined.ID(), "error", err)
 	}
 }
 
 func (c *Client) handleMatchLeave(id string) {
-	surviving, err := c.matches.Leave(c.id)
-	if err != nil {
+	if err := c.matches.Leave(c.id, time.Now().UnixMilli()); err != nil {
 		c.sendProtocolError(id, err)
 		return
 	}
 	c.sendResponse(id, protocol.TypeMatchLeave, protocol.OKPayload{})
-	c.publishState(surviving)
 }
 
 func (c *Client) handleMatchStart(id string) {
-	if _, err := c.matches.Start(c.id, time.Now().UnixMilli()); err != nil {
+	if err := c.matches.Start(c.id, time.Now().UnixMilli()); err != nil {
 		c.sendProtocolError(id, err)
 		return
 	}
 	c.sendResponse(id, protocol.TypeMatchStart, protocol.OKPayload{})
 }
 
-// leaveMatchOnDisconnect removes a disconnected player and lets the remaining
-// members see the new host, if any.
+// leaveMatchOnDisconnect removes a disconnected player and publishes the
+// surviving state.
 func (c *Client) leaveMatchOnDisconnect() {
-	surviving, err := c.matches.Leave(c.id)
-	if err != nil {
-		return
-	}
-	c.publishState(surviving)
-}
-
-func (c *Client) publishState(live *match.Match) {
-	if live == nil {
-		return
-	}
-	if err := live.PublishState("", time.Now().UnixMilli()); err != nil {
-		c.log.Error("publish match state", "client", c.id, "match", live.ID(), "error", err)
-	}
+	_ = c.matches.Leave(c.id, time.Now().UnixMilli())
 }
 
 func allowedBeforeHello(typ protocol.MessageType) bool {

@@ -128,7 +128,7 @@ func (discardSink) Send(protocol.Envelope) {}
 
 func TestShutdownClosesMatches(t *testing.T) {
 	s := testServer(t)
-	if _, err := s.matches.Create("p_1", "ana", discardSink{}); err != nil {
+	if _, err := s.matches.Create("create", "p_1", "ana", discardSink{}, 0); err != nil {
 		t.Fatalf("create match: %v", err)
 	}
 	if s.matches.Count() != 1 {

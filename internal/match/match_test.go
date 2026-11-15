@@ -36,12 +36,15 @@ func (f *fakeSink) last() (protocol.Envelope, bool) {
 	return f.envelopes[len(f.envelopes)-1], true
 }
 
-// testState builds a broadcastable match.state payload.
-func testState(matchID string) protocol.MatchState {
-	return protocol.MatchState{
-		MatchID:    matchID,
-		Phenomenon: protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
-	}
+func (m *Match) publishSnapshot(now int64) error {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+
+	m.mu.RLock()
+	state := m.stateLocked(m.phase, 0, now)
+	members := m.membersLocked()
+	m.mu.RUnlock()
+	return publishState(members, state)
 }
 
 func mustAdd(t *testing.T, match *Match, playerID string, sink Sink) int {
@@ -142,14 +145,14 @@ func TestHostMigration(t *testing.T) {
 	}
 }
 
-func TestBroadcastReachesEveryMember(t *testing.T) {
+func TestPublishStateReachesEveryMember(t *testing.T) {
 	match := newMatch("AB12", 4)
 	sinks := []*fakeSink{{}, {}}
 	mustAdd(t, match, "p_1", sinks[0])
 	mustAdd(t, match, "p_2", sinks[1])
 
-	if err := match.Broadcast(protocol.TypeMatchState, testState(match.ID())); err != nil {
-		t.Fatalf("broadcast: %v", err)
+	if err := match.publishSnapshot(1); err != nil {
+		t.Fatalf("publish: %v", err)
 	}
 
 	for i, sink := range sinks {
@@ -173,7 +176,7 @@ func TestBroadcastReachesEveryMember(t *testing.T) {
 	}
 }
 
-func TestBroadcastSkipsDepartedMembers(t *testing.T) {
+func TestPublishStateSkipsDepartedMembers(t *testing.T) {
 	match := newMatch("AB12", 4)
 	first, second := &fakeSink{}, &fakeSink{}
 	mustAdd(t, match, "p_1", first)
@@ -182,8 +185,8 @@ func TestBroadcastSkipsDepartedMembers(t *testing.T) {
 	if removed, _ := match.remove("p_2"); !removed {
 		t.Fatal("remove p_2 reported missing")
 	}
-	if err := match.Broadcast(protocol.TypeMatchState, testState(match.ID())); err != nil {
-		t.Fatalf("broadcast: %v", err)
+	if err := match.publishSnapshot(1); err != nil {
+		t.Fatalf("publish: %v", err)
 	}
 	if first.count() != 1 {
 		t.Fatalf("remaining member received %d events, want 1", first.count())
@@ -193,8 +196,8 @@ func TestBroadcastSkipsDepartedMembers(t *testing.T) {
 	}
 
 	match.remove("p_1")
-	if err := match.Broadcast(protocol.TypeMatchState, testState(match.ID())); err != nil {
-		t.Fatalf("broadcast empty match: %v", err)
+	if err := match.publishSnapshot(1); err != nil {
+		t.Fatalf("publish empty match: %v", err)
 	}
 	if first.count() != 1 {
 		t.Fatalf("empty match delivered %d extra events", first.count()-1)

@@ -55,7 +55,11 @@ func (m *Match) ID() string { return m.id }
 func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.addLocked(playerID, name, sink)
+}
 
+// addLocked places a player in the lowest free slot. The caller holds mu.
+func (m *Match) addLocked(playerID, name string, sink Sink) (int, error) {
 	free := -1
 	for slot, member := range m.members {
 		if member == nil {
@@ -87,7 +91,11 @@ func (m *Match) add(playerID, name string, sink Sink) (int, error) {
 func (m *Match) remove(playerID string) (removed, empty bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.removeLocked(playerID)
+}
 
+// removeLocked drops a player. The caller holds mu.
+func (m *Match) removeLocked(playerID string) (removed, empty bool) {
 	for slot, member := range m.members {
 		if member == nil || member.PlayerID != playerID {
 			continue
@@ -181,77 +189,4 @@ func (m *Match) hasLocked(playerID string) bool {
 		}
 	}
 	return false
-}
-
-// Broadcast delivers one event to every member's sink. It copies members and
-// sends outside the lock so a sink cannot block membership changes. The error
-// covers event construction only; delivery is best-effort.
-func (m *Match) Broadcast(typ protocol.MessageType, payload any) error {
-	event, err := protocol.NewEvent(typ, payload)
-	if err != nil {
-		return err
-	}
-	sendEvent(m.Members(), "", event)
-	return nil
-}
-
-// PublishState sends the current full state to every member except
-// exceptPlayerID. It builds the state at publication time so a membership
-// change cannot be overwritten by an older snapshot.
-func (m *Match) PublishState(exceptPlayerID string, now int64) error {
-	m.publishMu.Lock()
-	defer m.publishMu.Unlock()
-
-	m.mu.RLock()
-	state := m.stateLocked(m.phase, 0, now)
-	members := m.membersLocked()
-	m.mu.RUnlock()
-
-	event, err := protocol.NewEvent(protocol.TypeMatchState, state)
-	if err != nil {
-		return err
-	}
-	sendEvent(members, exceptPlayerID, event)
-	return nil
-}
-
-// PublishJoin sends the join response to the joiner and the lobby state to
-// every other member in one publication order.
-func (m *Match) PublishJoin(requestID, joinerID string, now int64) error {
-	m.publishMu.Lock()
-	defer m.publishMu.Unlock()
-
-	m.mu.RLock()
-	state := m.stateLocked(m.phase, 0, now)
-	members := m.membersLocked()
-	m.mu.RUnlock()
-
-	response, err := protocol.NewResponse(requestID, protocol.TypeMatchJoin, protocol.MatchJoinResult{
-		MatchID: m.id,
-		State:   state,
-	})
-	if err != nil {
-		return err
-	}
-	event, err := protocol.NewEvent(protocol.TypeMatchState, state)
-	if err != nil {
-		return err
-	}
-	for _, member := range members {
-		if member.PlayerID == joinerID {
-			member.Sink.Send(response)
-			continue
-		}
-		member.Sink.Send(event)
-	}
-	return nil
-}
-
-func sendEvent(members []Member, exceptPlayerID string, event protocol.Envelope) {
-	for _, member := range members {
-		if member.PlayerID == exceptPlayerID {
-			continue
-		}
-		member.Sink.Send(event)
-	}
 }

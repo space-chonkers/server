@@ -51,17 +51,10 @@ func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
 	playing := m.stateLocked(protocol.PhasePlaying, 0, now)
 	m.mu.Unlock()
 
-	countdownEvent, err := protocol.NewEvent(protocol.TypeMatchState, countdown)
-	if err != nil {
+	if err := publishState(members, countdown); err != nil {
 		return err
 	}
-	playingEvent, err := protocol.NewEvent(protocol.TypeMatchState, playing)
-	if err != nil {
-		return err
-	}
-	sendEvent(members, "", countdownEvent)
-	sendEvent(members, "", playingEvent)
-	return nil
+	return publishState(members, playing)
 }
 
 // validateWorldLocked checks the generator's invariants against the lobby.

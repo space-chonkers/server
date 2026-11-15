@@ -37,7 +37,8 @@ type Options struct {
 }
 
 // Manager owns the registry and every transition that changes it. Lock order is
-// Manager then Match; Match never calls back into Manager.
+// Manager, then Match publication, then Match state; Match never calls back
+// into Manager.
 type Manager struct {
 	mu       sync.RWMutex
 	matches  map[string]*Match
@@ -71,18 +72,18 @@ func NewManager(opts Options) *Manager {
 }
 
 // Create starts a lobby with playerID as its first member and host.
-func (m *Manager) Create(playerID, name string, sink Sink) (*Match, error) {
+func (m *Manager) Create(requestID, playerID, name string, sink Sink, now int64) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if err := m.checkJoinable(playerID); err != nil {
 		return nil, err
 	}
-	return m.createLobby(playerID, name, sink)
+	return m.createLobby(requestID, playerID, name, sink, now)
 }
 
 // Join adds a player to an existing lobby.
-func (m *Manager) Join(matchID, playerID, name string, sink Sink) (*Match, error) {
+func (m *Manager) Join(requestID, matchID, playerID, name string, sink Sink, now int64) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -93,15 +94,15 @@ func (m *Manager) Join(matchID, playerID, name string, sink Sink) (*Match, error
 	if !ok {
 		return nil, protocol.Errorf(protocol.CodeMatchNotFound, "match %s not found", matchID)
 	}
-	if _, err := match.add(playerID, name, sink); err != nil {
+	if err := match.join(requestID, playerID, name, sink, now); err != nil {
 		return nil, err
 	}
 	return match, nil
 }
 
-// JoinAny adds a player to the first lobby with space, creating one when none
-// has room.
-func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
+// JoinAny adds a player to a lobby with space, creating one when none is
+// joinable.
+func (m *Manager) JoinAny(requestID, playerID, name string, sink Sink, now int64) (*Match, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -112,48 +113,43 @@ func (m *Manager) JoinAny(playerID, name string, sink Sink) (*Match, error) {
 		if !match.joinable() {
 			continue
 		}
-		if _, err := match.add(playerID, name, sink); err != nil {
+		if err := match.join(requestID, playerID, name, sink, now); err != nil {
 			return nil, err
 		}
 		return match, nil
 	}
-	return m.createLobby(playerID, name, sink)
+	return m.createLobby(requestID, playerID, name, sink, now)
 }
 
 // Start freezes the player's lobby and publishes its start states. Only the
 // host may start, and only once.
-func (m *Manager) Start(playerID string, now int64) (*Match, error) {
+func (m *Manager) Start(playerID string, now int64) error {
 	m.mu.RLock()
 	match := m.matchOf(playerID)
 	m.mu.RUnlock()
 	if match == nil {
-		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
+		return protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
-	if err := match.start(playerID, m.newWorld, now); err != nil {
-		return nil, err
-	}
-	return match, nil
+	return match.start(playerID, m.newWorld, now)
 }
 
-// Leave removes the player and returns the surviving match, or nil when it
-// became empty and was dropped.
-func (m *Manager) Leave(playerID string) (*Match, error) {
+// Leave removes the player and publishes the surviving match state.
+func (m *Manager) Leave(playerID string, now int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	match := m.matchOf(playerID)
 	if match == nil {
-		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
+		return protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
-	removed, empty := match.remove(playerID)
-	if !removed {
-		return nil, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, match.id)
+	empty, err := match.leave(playerID, now)
+	if err != nil {
+		return err
 	}
 	if empty {
 		delete(m.matches, match.id)
-		return nil, nil
 	}
-	return match, nil
+	return nil
 }
 
 // Get returns a live match by code.
@@ -205,7 +201,7 @@ func (m *Manager) checkJoinable(playerID string) error {
 
 // createLobby registers a match with its creator. The caller holds the lock and
 // has checked checkJoinable.
-func (m *Manager) createLobby(playerID, name string, sink Sink) (*Match, error) {
+func (m *Manager) createLobby(requestID, playerID, name string, sink Sink, now int64) (*Match, error) {
 	if len(m.matches) >= m.opts.MaxMatches {
 		return nil, protocol.Errorf(protocol.CodeServerFull, "match limit %d reached", m.opts.MaxMatches)
 	}
@@ -216,7 +212,7 @@ func (m *Manager) createLobby(playerID, name string, sink Sink) (*Match, error) 
 	}
 	match := newMatch(id, m.opts.MaxPlayersPerMatch)
 	match.grid = m.opts.Grid
-	if _, err := match.add(playerID, name, sink); err != nil {
+	if err := match.join(requestID, playerID, name, sink, now); err != nil {
 		return nil, err
 	}
 	m.matches[id] = match
