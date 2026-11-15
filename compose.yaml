@@ -16,6 +16,7 @@ services:
       MAX_MESSAGE_BYTES: "32768"
       SHUTDOWN_TIMEOUT_SECONDS: "10"
     restart: unless-stopped
+    stop_grace_period: 15s
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
       interval: 30s

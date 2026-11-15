@@ -1,6 +1,9 @@
 package server
 
 import (
+	"fmt"
+	"math"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -65,45 +68,166 @@ func (cfg Config) Welcome(playerID string) protocol.Welcome {
 	}
 }
 
-func ConfigFromEnv() Config {
+// ConfigFromEnv loads the documented environment overrides and validates the
+// result. Invalid values fail startup instead of silently falling back.
+func ConfigFromEnv() (Config, error) {
 	cfg := DefaultConfig()
 
-	cfg.Addr = ":" + getenv("PORT", strings.TrimPrefix(cfg.Addr, ":"))
-
-	wsPath := getenv("WS_PATH", cfg.WSPath)
-	if !strings.HasPrefix(wsPath, "/") {
-		wsPath = "/" + wsPath
+	if value, ok := envValue("PORT"); ok {
+		port, err := strconv.Atoi(value)
+		if err != nil || port < 1 || port > 65535 {
+			return Config{}, fmt.Errorf("invalid PORT %q: want an integer between 1 and 65535", value)
+		}
+		cfg.Addr = ":" + strconv.Itoa(port)
 	}
-	cfg.WSPath = wsPath
 
-	cfg.AllowedOrigins = splitList(getenv("ALLOWED_ORIGINS", strings.Join(cfg.AllowedOrigins, ",")))
-	cfg.MaxMessageBytes = getenvInt64("MAX_MESSAGE_BYTES", cfg.MaxMessageBytes)
-	cfg.ShutdownTimeout = getenvDuration("SHUTDOWN_TIMEOUT_SECONDS", cfg.ShutdownTimeout)
+	if value, ok := envValue("WS_PATH"); ok {
+		if !strings.HasPrefix(value, "/") {
+			value = "/" + value
+		}
+		cfg.WSPath = value
+	}
 
-	return cfg
+	if value, ok := envValue("ALLOWED_ORIGINS"); ok {
+		origins := splitList(value)
+		if len(origins) == 0 {
+			return Config{}, fmt.Errorf("invalid ALLOWED_ORIGINS %q: want a comma-separated list", value)
+		}
+		cfg.AllowedOrigins = origins
+	}
+
+	if value, ok := envValue("MAX_MESSAGE_BYTES"); ok {
+		size, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || size <= 0 {
+			return Config{}, fmt.Errorf("invalid MAX_MESSAGE_BYTES %q: want a positive integer", value)
+		}
+		cfg.MaxMessageBytes = size
+	}
+
+	if value, ok := envValue("SHUTDOWN_TIMEOUT_SECONDS"); ok {
+		seconds, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || seconds <= 0 ||
+			seconds > int64((1<<63-1)/int64(time.Second)) {
+			return Config{}, fmt.Errorf("invalid SHUTDOWN_TIMEOUT_SECONDS %q: want a positive integer", value)
+		}
+		cfg.ShutdownTimeout = time.Duration(seconds) * time.Second
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
-func getenv(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
+// Validate checks the values that can make the process or a match fail after
+// startup. It is called on environment-derived configuration.
+func (cfg Config) Validate() error {
+	if err := cfg.validateTransport(); err != nil {
+		return err
 	}
-	return fallback
+	return cfg.validateRules()
 }
 
-func getenvInt64(key string, fallback int64) int64 {
-	value, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(key)), 10, 64)
-	if err != nil || value <= 0 {
-		return fallback
+func (cfg Config) validateTransport() error {
+	if cfg.WSPath == "" || cfg.WSPath == "/" || !strings.HasPrefix(cfg.WSPath, "/") {
+		return fmt.Errorf("invalid WS_PATH %q: want a path such as /ws", cfg.WSPath)
 	}
-	return value
+	if strings.HasSuffix(cfg.WSPath, "/") ||
+		strings.ContainsAny(cfg.WSPath, " \t\r\n?#") {
+		return fmt.Errorf("invalid WS_PATH %q: want an exact path without a trailing slash, whitespace, or query", cfg.WSPath)
+	}
+
+	if len(cfg.AllowedOrigins) == 0 {
+		return fmt.Errorf("invalid ALLOWED_ORIGINS: want at least one origin or *")
+	}
+	for _, origin := range cfg.AllowedOrigins {
+		if err := validateOrigin(origin); err != nil {
+			return err
+		}
+	}
+
+	if cfg.MaxMessageBytes <= 0 {
+		return fmt.Errorf("invalid MAX_MESSAGE_BYTES %d: want a positive integer", cfg.MaxMessageBytes)
+	}
+	if cfg.ShutdownTimeout <= 0 {
+		return fmt.Errorf("invalid SHUTDOWN_TIMEOUT_SECONDS: want a positive duration")
+	}
+	if !finitePositive(cfg.TickRate) {
+		return fmt.Errorf("invalid TICK_RATE %v: want a finite positive number", cfg.TickRate)
+	}
+	if !finitePositive(cfg.FrameRate) {
+		return fmt.Errorf("invalid FRAME_RATE %v: want a finite positive number", cfg.FrameRate)
+	}
+	if cfg.FrameRate > cfg.TickRate {
+		return fmt.Errorf("invalid FRAME_RATE %v: must not exceed TICK_RATE %v", cfg.FrameRate, cfg.TickRate)
+	}
+	if cfg.MaxPlayersPerMatch < 1 || cfg.MaxPlayersPerMatch > 4 {
+		return fmt.Errorf("invalid MAX_PLAYERS_PER_MATCH %d: want 1..4", cfg.MaxPlayersPerMatch)
+	}
+	if cfg.MaxMatches <= 0 {
+		return fmt.Errorf("invalid MAX_MATCHES %d: want a positive integer", cfg.MaxMatches)
+	}
+	return nil
 }
 
-func getenvDuration(key string, fallback time.Duration) time.Duration {
-	seconds, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(key)), 10, 64)
-	if err != nil || seconds <= 0 {
-		return fallback
+func (cfg Config) validateRules() error {
+	if cfg.Rules.Grid.Width <= 0 || cfg.Rules.Grid.Height <= 0 {
+		return fmt.Errorf("invalid grid %dx%d: want positive dimensions",
+			cfg.Rules.Grid.Width, cfg.Rules.Grid.Height)
 	}
-	return time.Duration(seconds) * time.Second
+	available := cfg.Rules.Grid.Width*cfg.Rules.Grid.Height - 9
+	if available < 1 {
+		return fmt.Errorf("invalid grid %dx%d: need at least a 3x3 base",
+			cfg.Rules.Grid.Width, cfg.Rules.Grid.Height)
+	}
+	if cfg.Rules.InvestigationCount < 1 || cfg.Rules.InvestigationCount > available {
+		return fmt.Errorf("invalid investigation count %d: want 1..%d",
+			cfg.Rules.InvestigationCount, available)
+	}
+
+	for _, cost := range []struct {
+		name  string
+		value float64
+	}{
+		{"water", cfg.Rules.BuildCost.Water},
+		{"oxygen", cfg.Rules.BuildCost.Oxygen},
+		{"energy", cfg.Rules.BuildCost.Energy},
+		{"food", cfg.Rules.BuildCost.Food},
+	} {
+		if math.IsNaN(cost.value) || math.IsInf(cost.value, 0) || cost.value < 0 {
+			return fmt.Errorf("invalid build cost %s %v: want a finite non-negative number",
+				cost.name, cost.value)
+		}
+	}
+	if !finitePositive(cfg.Rules.PlayerSpeed) {
+		return fmt.Errorf("invalid player speed %v: want a finite positive number", cfg.Rules.PlayerSpeed)
+	}
+	if !finitePositive(cfg.Rules.PhenomenonRollSeconds) {
+		return fmt.Errorf("invalid phenomenon roll interval %v: want a finite positive number",
+			cfg.Rules.PhenomenonRollSeconds)
+	}
+	return nil
+}
+
+func envValue(key string) (string, bool) {
+	value := strings.TrimSpace(os.Getenv(key))
+	return value, value != ""
+}
+
+func validateOrigin(origin string) error {
+	if origin == "*" {
+		return nil
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("invalid ALLOWED_ORIGINS entry %q: want * or http(s)://host[:port]", origin)
+	}
+	return nil
+}
+
+func finitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func splitList(value string) []string {
@@ -113,9 +237,6 @@ func splitList(value string) []string {
 		if part = strings.TrimSpace(part); part != "" {
 			out = append(out, part)
 		}
-	}
-	if len(out) == 0 {
-		return []string{"*"}
 	}
 	return out
 }

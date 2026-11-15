@@ -110,8 +110,11 @@ func (s *Server) stopFrameLoop() {
 
 func matchOptions(cfg Config) match.Options {
 	gameConfig := game.DefaultConfig()
-	if cfg.Rules.InvestigationCount > 0 {
-		gameConfig.InvestigationCount = cfg.Rules.InvestigationCount
+	gameConfig.InvestigationCount = cfg.Rules.InvestigationCount
+	gameConfig.BuildCost = game.BuildCost{
+		Water:  cfg.Rules.BuildCost.Water,
+		Oxygen: cfg.Rules.BuildCost.Oxygen,
+		Energy: cfg.Rules.BuildCost.Energy,
 	}
 	return match.Options{
 		MaxMatches:         cfg.MaxMatches,

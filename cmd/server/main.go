@@ -16,7 +16,11 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	cfg := server.ConfigFromEnv()
+	cfg, err := server.ConfigFromEnv()
+	if err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 	app := server.New(cfg, logger)
 
 	errCh := make(chan error, 1)

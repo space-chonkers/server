@@ -227,6 +227,10 @@ func TestAdvanceEconomyDoesNotChangeFrozenTeamSize(t *testing.T) {
 	}
 }
 
+func almostEqual(got, want float64) bool {
+	return math.Abs(got-want) <= 1e-9
+}
+
 func assertRates(t *testing.T, name string, actual ResourceRates, config ResourceConfig, teamSize, baseCells int, food bool) {
 	t.Helper()
 	wantGPS := config.GPSPerTile * float64(baseCells)
@@ -238,7 +242,9 @@ func assertRates(t *testing.T, name string, actual ResourceRates, config Resourc
 	wantStashMax := config.StashBase +
 		config.StashPerTile*float64(baseCells) +
 		config.StashPerPlayer*float64(teamSize)
-	if actual.GPS != wantGPS || actual.CPS != wantCPS || actual.StashMax != wantStashMax {
+	if !almostEqual(actual.GPS, wantGPS) ||
+		!almostEqual(actual.CPS, wantCPS) ||
+		!almostEqual(actual.StashMax, wantStashMax) {
 		t.Errorf("%s rates = %+v; want GPS %v CPS %v stash max %v",
 			name, actual, wantGPS, wantCPS, wantStashMax)
 	}

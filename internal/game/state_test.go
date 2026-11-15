@@ -336,13 +336,16 @@ func assertInitialResource(t *testing.T, name string, actual ResourceState, conf
 		gps = config.GPSPerPlayer * float64(teamSize)
 		cps = config.CPSPerPlayer * float64(teamSize)
 	}
-	if actual.Pool.Max != poolMax || actual.Pool.Current != poolMax*poolFraction {
+	if !almostEqual(actual.Pool.Max, poolMax) ||
+		!almostEqual(actual.Pool.Current, poolMax*poolFraction) {
 		t.Errorf("%s pool = %+v; want current %v max %v", name, actual.Pool, poolMax*poolFraction, poolMax)
 	}
-	if actual.Stash.Current != 0 || actual.Stash.Max != stashMax || actual.Stash.GPS != gps {
+	if actual.Stash.Current != 0 ||
+		!almostEqual(actual.Stash.Max, stashMax) ||
+		!almostEqual(actual.Stash.GPS, gps) {
 		t.Errorf("%s stash = %+v; want current 0 max %v GPS %v", name, actual.Stash, stashMax, gps)
 	}
-	if actual.CPS != cps {
+	if !almostEqual(actual.CPS, cps) {
 		t.Errorf("%s CPS = %v; want %v", name, actual.CPS, cps)
 	}
 }
