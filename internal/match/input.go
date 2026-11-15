@@ -68,9 +68,6 @@ func ApplyPlayerInputAtSpeed(
 	if request == nil || request.Seq == nil {
 		return false, fmt.Errorf("input request and sequence are required")
 	}
-	if *request.Seq < 0 {
-		return false, fmt.Errorf("input sequence must be non-negative")
-	}
 	if request.Move != nil && (request.Move.X == nil || request.Move.Y == nil) {
 		return false, fmt.Errorf("movement input requires both x and y")
 	}

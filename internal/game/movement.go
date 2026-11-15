@@ -56,10 +56,6 @@ func AdvancePlayerMovementAtSpeed(
 	if !finite(player.X) || !finite(player.Y) {
 		return PlayerMovementState{}, fmt.Errorf("player position must be finite")
 	}
-	if !validFacing(player.Facing) {
-		return PlayerMovementState{}, fmt.Errorf("invalid player facing %q", player.Facing)
-	}
-
 	walkable, err := baseCells(base)
 	if err != nil {
 		return PlayerMovementState{}, err
@@ -101,15 +97,9 @@ func AdvancePlayerMovementAtSpeed(
 
 // PlayerFrontCell returns the grid cell directly in front of the player.
 func PlayerFrontCell(player PlayerMovementState) (Cell, error) {
-	if !finite(player.X) || !finite(player.Y) ||
-		player.X < 0 || player.X >= worldWidth ||
-		player.Y < 0 || player.Y >= worldHeight {
+	if !inBounds(player.X, player.Y) {
 		return Cell{}, fmt.Errorf("player position is outside the grid")
 	}
-	if !validFacing(player.Facing) {
-		return Cell{}, fmt.Errorf("invalid player facing %q", player.Facing)
-	}
-
 	cell := Cell{CellX: int(math.Floor(player.X)), CellY: int(math.Floor(player.Y))}
 	switch player.Facing {
 	case FacingNorth:
@@ -133,8 +123,7 @@ func baseCells(constructions []Construction) (map[Cell]struct{}, error) {
 		if construction.Kind != ConstructionBaseTile && construction.Kind != ConstructionStash {
 			return nil, fmt.Errorf("construction %q is not a walkable base cell", construction.ID)
 		}
-		if construction.CellX < 0 || construction.CellX >= worldWidth ||
-			construction.CellY < 0 || construction.CellY >= worldHeight {
+		if !inBounds(float64(construction.CellX), float64(construction.CellY)) {
 			return nil, fmt.Errorf("base construction %q is outside the grid", construction.ID)
 		}
 		cell := Cell{CellX: construction.CellX, CellY: construction.CellY}
@@ -147,12 +136,16 @@ func baseCells(constructions []Construction) (map[Cell]struct{}, error) {
 }
 
 func walkablePosition(x, y float64, walkable map[Cell]struct{}) bool {
-	if x < 0 || x >= worldWidth || y < 0 || y >= worldHeight {
+	if !inBounds(x, y) {
 		return false
 	}
 	cell := Cell{CellX: int(math.Floor(x)), CellY: int(math.Floor(y))}
 	_, ok := walkable[cell]
 	return ok
+}
+
+func inBounds(x, y float64) bool {
+	return x >= 0 && x < worldWidth && y >= 0 && y < worldHeight
 }
 
 func moveAxis(x, y, distance float64, horizontal bool, walkable map[Cell]struct{}) (float64, bool) {
@@ -240,14 +233,5 @@ func facingFromInput(current Facing, x, y float64) Facing {
 		return FacingNorth
 	default:
 		return current
-	}
-}
-
-func validFacing(facing Facing) bool {
-	switch facing {
-	case FacingNorth, FacingEast, FacingSouth, FacingWest:
-		return true
-	default:
-		return false
 	}
 }

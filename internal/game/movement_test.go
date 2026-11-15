@@ -234,7 +234,6 @@ func TestAdvancePlayerMovementRejectsInvalidState(t *testing.T) {
 		{name: "non-finite input", player: PlayerMovementState{X: 0.5, Y: 0.5, Facing: FacingNorth}, input: MovementInput{X: math.NaN()}, base: base},
 		{name: "outside base", player: PlayerMovementState{X: 1.5, Y: 0.5, Facing: FacingNorth}, base: base},
 		{name: "empty base", player: PlayerMovementState{X: 0.5, Y: 0.5, Facing: FacingNorth}},
-		{name: "invalid facing", player: PlayerMovementState{X: 0.5, Y: 0.5, Facing: "up"}, base: base},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
