@@ -59,6 +59,8 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 		c.handleMatchStart(envelope.ID)
 	case *protocol.MatchInputRequest:
 		c.handleMatchInput(envelope.ID, request)
+	case *protocol.PhenomenonFixRequest:
+		c.handlePhenomenonFix(envelope.ID)
 	default:
 		// Later match actions are not implemented yet.
 		c.sendError(envelope.ID, protocol.CodeInternal, fmt.Sprintf("%s is not implemented yet", request.RequestType()))
@@ -107,6 +109,17 @@ func (c *Client) handleMatchInput(id string, request *protocol.MatchInputRequest
 	); err != nil {
 		c.sendProtocolError(id, err)
 	}
+}
+
+// handlePhenomenonFix pays energy to clear the active phenomenon. The fixer
+// gets the response; other members get the reliable resolved event.
+func (c *Client) handlePhenomenonFix(id string) {
+	result, _, err := c.matches.Fix(c.id, time.Now().UnixMilli())
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypePhenomenonFix, result)
 }
 
 // leaveMatchOnDisconnect removes a disconnected player and publishes the

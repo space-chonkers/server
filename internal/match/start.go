@@ -7,7 +7,8 @@ import (
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
-type worldFactory func(teamSize int) (game.World, error)
+// worldFactory returns a new world and the seed it was generated from.
+type worldFactory func(teamSize int) (game.World, int64, error)
 
 // start validates the host and phase, generates the world, and publishes the
 // countdown and playing states as one transition.
@@ -35,7 +36,7 @@ func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
 
 	members := m.membersLocked()
 	teamSize := len(members)
-	world, err := newWorld(teamSize)
+	world, seed, err := newWorld(teamSize)
 	if err == nil {
 		err = m.validateWorldLocked(world, members)
 	}
@@ -47,6 +48,7 @@ func (m *Match) start(playerID string, newWorld worldFactory, now int64) error {
 	m.teamSize = teamSize
 	m.startedAt = now
 	m.world = world
+	m.phenomenonRandom = game.NewPhenomenonRandom(seed)
 	// Frames start immediately, before any input arrives, so movement state
 	// must exist from tick zero.
 	if err := m.initializeMovementPlayersLocked(); err != nil {

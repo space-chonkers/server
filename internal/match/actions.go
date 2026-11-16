@@ -84,7 +84,7 @@ func (m *Match) collect(
 	result := protocol.StashCollectResult{
 		Collected: protocolAmounts(collected.Collected),
 		Lost:      protocolAmounts(collected.Lost),
-		Resources: resourcesState(nextWorld.Resources),
+		Resources: m.resourcesLocked(nextWorld),
 	}
 	members := m.membersLocked()
 	m.mu.Unlock()
@@ -116,7 +116,7 @@ func (m *Match) build(
 		return protocol.BaseBuildResult{}, nil, gameActionError(err)
 	}
 
-	resources := resourcesState(nextWorld.Resources)
+	resources := m.resourcesLocked(nextWorld)
 	construction := protocol.Construction{
 		ID: built.Construction.ID, Kind: protocol.ConstructionKind(built.Construction.Kind),
 		CellX: built.Construction.CellX, CellY: built.Construction.CellY,
@@ -187,6 +187,10 @@ func gameActionError(err error) error {
 		return protocol.Errorf(protocol.CodeNotInFront, "%v", err)
 	case errors.Is(err, game.ErrCellOccupied):
 		return protocol.Errorf(protocol.CodeCellOccupied, "%v", err)
+	case errors.Is(err, game.ErrNoPhenomenon):
+		return protocol.Errorf(protocol.CodeNoPhenomenon, "%v", err)
+	case errors.Is(err, game.ErrInsufficientEnergy):
+		return protocol.Errorf(protocol.CodeInsufficientEnergy, "%v", err)
 	case errors.Is(err, game.ErrInsufficientResource):
 		var insufficient *game.InsufficientResourcesError
 		if errors.As(err, &insufficient) {

@@ -79,7 +79,7 @@ func (m *Match) frameLocked() protocol.MatchFrame {
 		BaseCellCount: m.world.BaseCellCount,
 		TeamSize:      m.teamSize,
 		Players:       players,
-		Resources:     resourcesState(m.world.Resources),
-		Phenomenon:    protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
+		Resources:     m.resourcesLocked(m.world),
+		Phenomenon:    m.activePhenomenonLocked(),
 	}
 }

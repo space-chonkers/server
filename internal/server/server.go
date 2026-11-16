@@ -80,8 +80,9 @@ func newWithManager(cfg Config, log *slog.Logger, matches *match.Manager) *Serve
 	return server
 }
 
-// startFrameLoop publishes lossy match frames at the configured frame rate.
-// One process-wide loop keeps match lifecycle free of background goroutines.
+// startFrameLoop steps match simulation and publishes lossy match frames at the
+// configured frame rate. One process-wide loop keeps match lifecycle free of
+// background goroutines.
 func (s *Server) startFrameLoop() {
 	interval := time.Duration(float64(time.Second) / s.cfg.FrameRate)
 	go func() {
@@ -91,6 +92,11 @@ func (s *Server) startFrameLoop() {
 		for {
 			select {
 			case <-ticker.C:
+				// Step before broadcasting so frames carry this step's
+				// phenomenon and economy.
+				if err := s.matches.Step(); err != nil {
+					s.log.Error("step matches", "error", err)
+				}
 				if err := s.matches.BroadcastFrames(); err != nil {
 					s.log.Error("broadcast match frames", "error", err)
 				}
@@ -116,6 +122,8 @@ func matchOptions(cfg Config) match.Options {
 		Oxygen: cfg.Rules.BuildCost.Oxygen,
 		Energy: cfg.Rules.BuildCost.Energy,
 	}
+	// The published rules interval is the one the simulation uses.
+	gameConfig.Phenomena.RollSeconds = cfg.Rules.PhenomenonRollSeconds
 	return match.Options{
 		MaxMatches:         cfg.MaxMatches,
 		MaxPlayersPerMatch: cfg.MaxPlayersPerMatch,

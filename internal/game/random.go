@@ -28,6 +28,11 @@ func (r *randomSource) intn(n int) int {
 	}
 }
 
+// float64 returns a uniform value in [0, 1) from the top 53 bits of next.
+func (r *randomSource) float64() float64 {
+	return float64(r.next()>>11) / (1 << 53)
+}
+
 func (r *randomSource) shuffleCells(cells []Cell) {
 	for i := len(cells) - 1; i > 0; i-- {
 		j := r.intn(i + 1)

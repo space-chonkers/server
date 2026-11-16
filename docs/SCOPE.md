@@ -106,21 +106,28 @@ this is the survival pressure.
 ### Phenomena
 
 At most one phenomenon is active. The server rolls only while playing and only
-when `type == 0`; a roll happens every `PHENOMENON_ROLL_SECONDS`. Weights are
-config (default uniform across 0–4). Every roll—including a 0 roll—and every
-event resolution resets the timer.
+when `type == 0`; the first roll happens `PHENOMENON_FIRST_ROLL_SECONDS` after
+play starts, then every `PHENOMENON_ROLL_SECONDS`. Each roll is a
+solar storm with `p_solar = 1 − (1 − SOLAR_STORM_CHANCE_PER_DAY)^(PHENOMENON_ROLL_SECONDS / SECONDS_PER_DAY)`
+(0.169 by default), then strong with `STRONG_SHARE`, otherwise mild; the
+remaining `1 − p_solar` is split by config weights over 0, 2, 3, and 4 (default
+uniform, ≈ 0.208 each). Every roll—including a 0 roll—and every event
+resolution resets the timer.
+
+- 1 day = 60 s = 1,800 ticks.
 
 | Type | Name | Effect | Fix | Duration |
 | --- | --- | --- | --- | --- |
 | 0 | none | No effect | — | — |
-| 1 | solar storm | Water/oxygen/energy GPS −`SOLAR_GPS_REDUCTION_PER_SECOND` (10 percentage points/s; 0 after 10 s) | Energy | Until fixed |
+| 1 | solar storm | Water/oxygen/energy GPS −`SOLAR_GPS_REDUCTION_PER_SECOND` (strong 15 percentage points/s, 0 after ≈ 6.7 s; mild 5 points/s, 0 after 20 s) | Energy | Until fixed |
 | 2 | water leak | Water CPS × `WATER_LEAK_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
 | 3 | oxygen loss | Oxygen CPS × `OXYGEN_LOSS_CPS_MULTIPLIER` (1.5) | Energy | Until fixed |
 | 4 | rotten food | Food pool − `ROTTEN_FOOD_PER_PLAYER × P`, once | — | One tick |
 
 - Solar storm affects stash generation only; leak/loss affect the pool only.
   Solar reduction is absolute (percentage points of base GPS per second), not a
-  compounding multiplier; it reaches 0 after 10 s and stays there until fixed.
+  compounding multiplier; it reaches 0 after `1 / SOLAR_GPS_REDUCTION_PER_SECOND`
+  seconds and stays there until fixed.
 - Rotten food subtracts from the pool once, then the active type returns to 0.
 - Fix: stand on the stash cell, pay `fixCostEnergy`, clear immediately. Fixing
   before the economy tick prevents that tick's effect. Insufficient energy is an
@@ -209,11 +216,22 @@ are **not balanced** for the jam yet.
 | `CPS_PER_TILE` | 0.08 | 0.08 | 0.06 | — |
 | `BUILD_COST` | 5 | 5 | 5 | 0 |
 
-Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_REDUCTION_PER_SECOND=0.10`,
+Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_REDUCTION_PER_SECOND={strong:0.15, mild:0.05}`,
 `WATER_LEAK_CPS_MULTIPLIER=1.5`, `OXYGEN_LOSS_CPS_MULTIPLIER=1.5`,
-`ROTTEN_FOOD_PER_PLAYER=5`, `FIX_COST_ENERGY={solar:20, water:10, oxygen:10}`,
-`PHENOMENON_ROLL_SECONDS=30`, uniform event weights, `INVESTIGATION_COUNT=10`,
+`ROTTEN_FOOD_PER_PLAYER=5`, `FIX_COST_ENERGY={solar:{strong:30, mild:15}, water:10, oxygen:10}`,
+`PHENOMENON_FIRST_ROLL_SECONDS=120`, `PHENOMENON_ROLL_SECONDS=30`, `INVESTIGATION_COUNT=10`,
 `PLAYER_SPEED=4`, `TICK_RATE=30`, `FRAME_RATE=15`.
+
+Phenomenon roll defaults:
+
+| Constant | Default | Notes |
+| --- | --- | --- |
+| `SECONDS_PER_DAY` | 60 | 1 Mars day (sol) = 60 s = 1,800 ticks; one roll = 0.5 day |
+| `SOLAR_STORM_CHANCE_PER_DAY` | 0.31 | NASA DONKI WSA-Enlil, Mars impacts, 2024-01-01 → 2026-11-15: 323 of 1,050 days |
+| `STRONG_SHARE` | 0.38 | Direct hits among Mars storms, last 12 months (63 of 167) |
+| `SOLAR_STRONG` | reduction 0.15/s (15 percentage points/s), fix 30 energy | |
+| `SOLAR_MILD` | reduction 0.05/s (5 percentage points/s), fix 15 energy | |
+| `PHENOMENON_WEIGHTS` | none 1, water leak 1, oxygen loss 1, rotten food 1 | Split the non-solar share |
 
 ## 8. Definition of done
 

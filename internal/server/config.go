@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -205,6 +206,9 @@ func (cfg Config) validateRules() error {
 	if !finitePositive(cfg.Rules.PhenomenonRollSeconds) {
 		return fmt.Errorf("invalid phenomenon roll interval %v: want a finite positive number",
 			cfg.Rules.PhenomenonRollSeconds)
+	}
+	if err := game.ValidatePhenomenonConfig(matchOptions(cfg).GameConfig); err != nil {
+		return fmt.Errorf("invalid phenomenon config: %w", err)
 	}
 	return nil
 }
