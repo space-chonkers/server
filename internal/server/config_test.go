@@ -173,6 +173,7 @@ func TestMatchOptionsUseConfiguredRules(t *testing.T) {
 	cfg.Rules.Grid = protocol.GridSize{Width: 60, Height: 40}
 	cfg.Rules.InvestigationCount = 7
 	cfg.Rules.BuildCost = protocol.BuildCost{Water: 1, Oxygen: 2, Energy: 3, Food: 4}
+	cfg.Rules.PhenomenonRollSeconds = 45
 
 	options := matchOptions(cfg)
 	if options.Grid != cfg.Rules.Grid {
@@ -183,6 +184,9 @@ func TestMatchOptionsUseConfiguredRules(t *testing.T) {
 	}
 	if options.GameConfig.BuildCost != (game.BuildCost{Water: 1, Oxygen: 2, Energy: 3}) {
 		t.Fatalf("build cost = %+v", options.GameConfig.BuildCost)
+	}
+	if options.GameConfig.Phenomena.RollSeconds != 45 {
+		t.Fatalf("phenomenon roll seconds = %v, want the published 45", options.GameConfig.Phenomena.RollSeconds)
 	}
 }
 
@@ -201,5 +205,9 @@ func TestWelcomeRulesMatchGameDefaults(t *testing.T) {
 	}) {
 		t.Fatalf("build cost = %+v, want game defaults %+v",
 			welcome.Rules.BuildCost, defaults.BuildCost)
+	}
+	if welcome.Rules.PhenomenonRollSeconds != defaults.Phenomena.RollSeconds {
+		t.Fatalf("phenomenon roll seconds = %v, want %v",
+			welcome.Rules.PhenomenonRollSeconds, defaults.Phenomena.RollSeconds)
 	}
 }

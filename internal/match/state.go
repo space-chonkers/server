@@ -100,8 +100,8 @@ func (m *Match) worldStateLocked(phase protocol.Phase, phaseEndsAtMs, now int64)
 		Players:       players,
 		Constructions: constructions,
 		Investigation: investigation,
-		Resources:     resourcesState(m.world.Resources),
-		Phenomenon:    protocol.ActivePhenomenon{Value: protocol.PhenomenonNone{}},
+		Resources:     m.resourcesLocked(m.world),
+		Phenomenon:    m.activePhenomenonLocked(),
 	}
 }
 

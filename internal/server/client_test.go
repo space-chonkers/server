@@ -197,6 +197,27 @@ func TestBaseBuildRemainsUnimplemented(t *testing.T) {
 	ping(t, conn, "ping-after")
 }
 
+func TestPhenomenonFixIsRouted(t *testing.T) {
+	s := testServer(t)
+	conn := dialWS(t, s)
+	readWelcome(t, conn)
+	hello(t, conn, "hello-1", "ana")
+
+	writeEnvelope(t, conn, protocol.Envelope{ID: "fix-1", Type: protocol.TypePhenomenonFix})
+	expectError(t, conn, "fix-1", protocol.CodeNotInMatch)
+
+	createMatch(t, conn, "join-1")
+	writeEnvelope(t, conn, protocol.Envelope{ID: "fix-2", Type: protocol.TypePhenomenonFix})
+	expectError(t, conn, "fix-2", protocol.CodeWrongPhase)
+
+	startMatch(t, conn, "start-1")
+	// No roll happens within the first 30 s, so the route reports the
+	// contract error instead of the old "not implemented".
+	writeEnvelope(t, conn, protocol.Envelope{ID: "fix-3", Type: protocol.TypePhenomenonFix})
+	expectError(t, conn, "fix-3", protocol.CodeNoPhenomenon)
+	ping(t, conn, "ping-after")
+}
+
 func TestMatchInputMovesPlayerThroughServer(t *testing.T) {
 	s := testServer(t)
 	conn := dialWS(t, s)

@@ -4,6 +4,7 @@ package match
 
 import (
 	"sync"
+	"time"
 
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
@@ -40,6 +41,13 @@ type Match struct {
 	world     game.World
 	players   []protocol.PlayerState
 	tick      int64
+
+	// Phenomenon state. The stream is seeded from the world seed at start;
+	// lastStepAt and nextRollAt are set by the first Step while playing.
+	phenomenonRandom *game.PhenomenonRandom
+	phenomenon       game.ActivePhenomenon
+	lastStepAt       time.Time
+	nextRollAt       time.Time
 }
 
 func newMatch(id string, maxPlayers int) *Match {

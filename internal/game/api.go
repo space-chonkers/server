@@ -121,6 +121,7 @@ type Config struct {
 	Oxygen                   ResourceConfig
 	Energy                   ResourceConfig
 	Food                     ResourceConfig
+	Phenomena                PhenomenonConfig
 }
 
 // World is the immutable starting snapshot produced for a match.
@@ -157,5 +158,6 @@ func DefaultConfig() Config {
 			PoolPerPlayer: 40, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
 			GPSPerPlayer: 0.15, CPSPerPlayer: 0.30,
 		},
+		Phenomena: DefaultPhenomenonConfig(),
 	}
 }

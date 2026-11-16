@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"sync"
+	"time"
 
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
@@ -23,10 +24,13 @@ type WorldGenerator func(seed int64, teamSize int, config game.Config) (game.Wor
 // SeedSource returns the seed for one world.
 type SeedSource func() (int64, error)
 
+// Clock returns the current time for the simulation step.
+type Clock func() time.Time
+
 // Options are the manager limits and world inputs. GenerateWorld, NewSeed, and
 // GameConfig are composed into one world factory at construction. Grid is the
 // authoritative map size for lobby and playing state; generated worlds must
-// match it.
+// match it. Now is the simulation clock read by Step; it defaults to time.Now.
 type Options struct {
 	MaxMatches         int
 	MaxPlayersPerMatch int
@@ -34,6 +38,7 @@ type Options struct {
 	GameConfig         game.Config
 	GenerateWorld      WorldGenerator
 	NewSeed            SeedSource
+	Now                Clock
 }
 
 // Manager owns the registry and every transition that changes it. Lock order is
@@ -57,12 +62,16 @@ func NewManager(opts Options) *Manager {
 	if seed == nil {
 		seed = randomSeed
 	}
-	newWorld := func(teamSize int) (game.World, error) {
+	newWorld := func(teamSize int) (game.World, int64, error) {
 		worldSeed, err := seed()
 		if err != nil {
-			return game.World{}, err
+			return game.World{}, 0, err
 		}
-		return generate(worldSeed, teamSize, opts.GameConfig)
+		world, err := generate(worldSeed, teamSize, opts.GameConfig)
+		return world, worldSeed, err
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	return &Manager{
 		matches:  make(map[string]*Match),
