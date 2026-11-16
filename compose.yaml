@@ -8,7 +8,7 @@ services:
         VERSION: ${VERSION:-dev}
     image: space-chonkers/server:${VERSION:-dev}
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      - "${SERVER_PORT:-8081}:8080"
     environment:
       PORT: "8080"
       WS_PATH: /ws

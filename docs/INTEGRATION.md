@@ -64,7 +64,7 @@ All game messages are JSON text frames over `/ws`.
 | --- | --- | --- |
 | `welcome` | `WelcomeEvent` | First frame |
 | `match.state` | `MatchStateEvent` | Join response, start, phase change |
-| `match.frame` | `MatchFrameEvent` | 15 Hz while playing |
+| `match.frame` | `MatchFrameEvent` | 60 Hz by default while playing |
 | `match.build` | `MatchBuildEvent` | After another player builds |
 | `match.phenomenon` | `MatchPhenomenonEvent` | Event starts/resolves/is instant |
 | `match.ended` | `MatchEndedEvent` | Win/loss/abandon |

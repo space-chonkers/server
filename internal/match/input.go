@@ -2,16 +2,20 @@ package match
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
+
+const maxMovementCatchupSteps = 4
 
 func (m *Match) applyInput(
 	playerID string,
 	request *protocol.MatchInputRequest,
 	speedPerSecond float64,
 	elapsedSeconds float64,
+	now time.Time,
 ) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -32,16 +36,32 @@ func (m *Match) applyInput(
 		if slot >= len(m.players) {
 			return false, fmt.Errorf("player slot %d has no movement state", slot)
 		}
+		inputElapsed := elapsedSinceInput(now, m.lastInputAt[slot], elapsedSeconds)
 		applied, err := ApplyPlayerInputAtSpeed(
-			&m.players[slot], request, m.world.Constructions, speedPerSecond, elapsedSeconds,
+			&m.players[slot], request, m.world.Constructions, speedPerSecond, inputElapsed,
 		)
 		if err != nil || !applied {
 			return applied, err
 		}
-		m.tick++
+		m.lastInputAt[slot] = now
 		return true, nil
 	}
 	return false, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in match %s", playerID, m.id)
+}
+
+func elapsedSinceInput(now, lastInputAt time.Time, nominalStep float64) float64 {
+	if lastInputAt.IsZero() {
+		return nominalStep
+	}
+	elapsed := now.Sub(lastInputAt).Seconds()
+	if elapsed < 0 {
+		return 0
+	}
+	maxElapsed := nominalStep * maxMovementCatchupSteps
+	if elapsed > maxElapsed {
+		return maxElapsed
+	}
+	return elapsed
 }
 
 // ApplyPlayerInput applies a newer input snapshot to player. The caller owns

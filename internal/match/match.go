@@ -28,19 +28,20 @@ type Member struct {
 // Match is one lobby or running match. mu guards membership and the start
 // snapshot; publishMu orders state publication against membership changes.
 type Match struct {
-	mu        sync.RWMutex
-	publishMu sync.Mutex
-	id        string
-	members   []*Member // index == slot; nil is free
-	hostSlot  int       // -1 when the match is empty
-	phase     protocol.Phase
-	grid      protocol.GridSize // published while the match is a lobby
-	teamSize  int               // frozen when the match starts
-	startedAt int64
-	ended     *protocol.MatchEnded
-	world     game.World
-	players   []protocol.PlayerState
-	tick      int64
+	mu          sync.RWMutex
+	publishMu   sync.Mutex
+	id          string
+	members     []*Member // index == slot; nil is free
+	hostSlot    int       // -1 when the match is empty
+	phase       protocol.Phase
+	grid        protocol.GridSize // published while the match is a lobby
+	teamSize    int               // frozen when the match starts
+	startedAt   int64
+	ended       *protocol.MatchEnded
+	world       game.World
+	players     []protocol.PlayerState
+	lastInputAt []time.Time
+	tick        int64
 
 	// Phenomenon state. The stream is seeded from the world seed at start;
 	// lastStepAt and nextRollAt are set by the first Step while playing.

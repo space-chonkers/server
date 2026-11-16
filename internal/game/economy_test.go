@@ -26,14 +26,14 @@ func TestValidateEconomyConfigRejectsInvalidRatesAndPoolCapacity(t *testing.T) {
 				config.Water.CPSPerPlayer = 1000
 				config.Water.CPSPerTile = 0.5
 			},
-			want: "water CPS must exceed GPS for team size 1 and base cells 2500",
+			want: "water CPS must be at least GPS for team size 1 and base cells 2500",
 		},
 		{
-			name: "food cps equals gps",
+			name: "food gps exceeds cps",
 			change: func(config *Config) {
-				config.Food.GPSPerPlayer = config.Food.CPSPerPlayer
+				config.Food.GPSPerPlayer = config.Food.CPSPerPlayer + 0.1
 			},
-			want: "food CPS must exceed GPS",
+			want: "food CPS must be at least GPS",
 		},
 		{
 			name: "zero capacity",
@@ -91,6 +91,11 @@ func TestCalculateEconomyRates(t *testing.T) {
 			assertRates(t, "oxygen", rates.Oxygen, config.Oxygen, teamSize, baseCells, false)
 			assertRates(t, "energy", rates.Energy, config.Energy, teamSize, baseCells, false)
 			assertRates(t, "food", rates.Food, config.Food, teamSize, baseCells, true)
+			for _, resource := range []ResourceRates{rates.Water, rates.Oxygen, rates.Energy, rates.Food} {
+				if !almostEqual(resource.GPS, resource.CPS) {
+					t.Errorf("team %d, base %d: generation %v differs from consumption %v", teamSize, baseCells, resource.GPS, resource.CPS)
+				}
+			}
 		}
 	}
 }
@@ -233,7 +238,7 @@ func almostEqual(got, want float64) bool {
 
 func assertRates(t *testing.T, name string, actual ResourceRates, config ResourceConfig, teamSize, baseCells int, food bool) {
 	t.Helper()
-	wantGPS := config.GPSPerTile * float64(baseCells)
+	wantGPS := config.GPSPerTile*float64(baseCells) + config.GPSPerPlayer*float64(teamSize)
 	wantCPS := config.CPSPerPlayer*float64(teamSize) + config.CPSPerTile*float64(baseCells)
 	if food {
 		wantGPS = config.GPSPerPlayer * float64(teamSize)

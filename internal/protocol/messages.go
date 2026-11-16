@@ -155,7 +155,7 @@ func (m MatchState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(value)
 }
 
-// MatchFrame is the lossy 15 Hz state frame.
+// MatchFrame is the lossy state frame, broadcast at the configured frame rate.
 type MatchFrame struct {
 	MatchID       string           `json:"matchId"`
 	Tick          int64            `json:"tick"`

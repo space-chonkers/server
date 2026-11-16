@@ -15,8 +15,8 @@ export const PROTOCOL_VERSION = 1 as const
 
 export const DEFAULT_GRID_WIDTH = 50
 export const DEFAULT_GRID_HEIGHT = 50
-export const DEFAULT_TICK_RATE = 30
-export const DEFAULT_FRAME_RATE = 15
+export const DEFAULT_TICK_RATE = 60
+export const DEFAULT_FRAME_RATE = 60
 export const DEFAULT_COUNTDOWN_MS = 3_000
 export const DEFAULT_INVESTIGATION_COUNT = 10
 export const DEFAULT_PLAYER_SPEED = 4

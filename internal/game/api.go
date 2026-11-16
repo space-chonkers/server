@@ -140,23 +140,23 @@ func DefaultConfig() Config {
 	return Config{
 		InvestigationCount:       10,
 		InvestigationMinDistance: 5,
-		StartingPoolFraction:     0.5,
+		StartingPoolFraction:     0.8,
 		BuildCost:                BuildCost{Water: 5, Oxygen: 5, Energy: 5},
 		Water: ResourceConfig{
-			PoolPerPlayer: 50, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
-			GPSPerTile: 0.04, CPSPerPlayer: 0.30, CPSPerTile: 0.08,
+			PoolPerPlayer: 100, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
+			GPSPerTile: 0.08, GPSPerPlayer: 0.25, CPSPerPlayer: 0.25, CPSPerTile: 0.08,
 		},
 		Oxygen: ResourceConfig{
-			PoolPerPlayer: 50, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
-			GPSPerTile: 0.04, CPSPerPlayer: 0.30, CPSPerTile: 0.08,
+			PoolPerPlayer: 100, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
+			GPSPerTile: 0.08, GPSPerPlayer: 0.25, CPSPerPlayer: 0.25, CPSPerTile: 0.08,
 		},
 		Energy: ResourceConfig{
-			PoolPerPlayer: 50, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
-			GPSPerTile: 0.03, CPSPerPlayer: 0.25, CPSPerTile: 0.06,
+			PoolPerPlayer: 100, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
+			GPSPerTile: 0.06, GPSPerPlayer: 0.20, CPSPerPlayer: 0.20, CPSPerTile: 0.06,
 		},
 		Food: ResourceConfig{
-			PoolPerPlayer: 40, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
-			GPSPerPlayer: 0.15, CPSPerPlayer: 0.30,
+			PoolPerPlayer: 80, StashBase: 10, StashPerTile: 1, StashPerPlayer: 5,
+			GPSPerPlayer: 0.25, CPSPerPlayer: 0.25,
 		},
 		Phenomena: DefaultPhenomenonConfig(),
 	}

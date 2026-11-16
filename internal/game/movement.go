@@ -23,6 +23,12 @@ type MovementInput struct {
 // PlayerSpeed is the default movement speed in grid units per second.
 const PlayerSpeed = 4.0
 
+// WallCollisionOffset matches the walkable clearance around corridor walls
+// and corner posts in the client scene.
+const WallCollisionOffset = 0.12
+
+const wallCollisionTolerance = 1e-9
+
 // AdvancePlayerMovement applies one movement intent over elapsedSeconds.
 // Positions are points in grid units and only occupied base cells are
 // traversable.
@@ -168,35 +174,58 @@ func moveAxis(x, y, distance float64, horizontal bool, walkable map[Cell]struct{
 		} else {
 			cellY = int(math.Floor(position))
 		}
+		center := float64(cellX) + 0.5
+		orthogonal := y
+		orthogonalCenter := float64(cellY) + 0.5
+		if !horizontal {
+			center = float64(cellY) + 0.5
+			orthogonal = x
+			orthogonalCenter = float64(cellX) + 0.5
+		}
+		cornerBlocked := math.Abs(orthogonal-orthogonalCenter) > WallCollisionOffset+wallCollisionTolerance
 
 		if distance > 0 {
-			boundary := math.Floor(position) + 1
-			if target < boundary {
-				return target, false
-			}
+			wallLimit := center + WallCollisionOffset
 			nextX, nextY := cellX, cellY
 			if horizontal {
 				nextX++
 			} else {
 				nextY++
 			}
-			if !hasCell(walkable, nextX, nextY) {
-				return math.Nextafter(boundary, math.Inf(-1)), true
+			if cornerBlocked || !hasCell(walkable, nextX, nextY) {
+				if position >= wallLimit {
+					return position, true
+				}
+				if target > wallLimit {
+					return wallLimit, true
+				}
+				return target, false
+			}
+			boundary := math.Floor(position) + 1
+			if target < boundary {
+				return target, false
 			}
 			position = boundary
 		} else {
-			boundary := math.Floor(position)
-			if target >= boundary {
-				return target, false
-			}
+			wallLimit := center - WallCollisionOffset
 			nextX, nextY := cellX, cellY
 			if horizontal {
 				nextX--
 			} else {
 				nextY--
 			}
-			if !hasCell(walkable, nextX, nextY) {
-				return boundary, true
+			if cornerBlocked || !hasCell(walkable, nextX, nextY) {
+				if position <= wallLimit {
+					return position, true
+				}
+				if target < wallLimit {
+					return wallLimit, true
+				}
+				return target, false
+			}
+			boundary := math.Floor(position)
+			if target >= boundary {
+				return target, false
 			}
 			position = math.Nextafter(boundary, math.Inf(-1))
 		}

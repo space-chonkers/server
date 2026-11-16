@@ -17,8 +17,8 @@ cells, and the outcome are shared; there is no individual score.
 
 ### Game loop at a glance
 
-- **Move** continuously inside the base; players overlap and constructions do
-  not block.
+- **Move** continuously inside the base; players overlap, while closed corridor
+  walls and corner posts block movement.
 - **Collect** all four resources at the stash; overflow beyond pool capacity is
   lost.
 - **Build** a base tile on the single empty cell directly in front of the
@@ -42,7 +42,8 @@ cells, and the outcome are shared; there is no individual score.
   cannot be built or removed.
 - Players spawn at the four cardinal edge cells (N/E/S/W by slot), facing
   radially outward, may overlap, and move continuously **only inside the base**.
-  Constructions are non-blocking.
+  Closed corridor walls and corner posts block movement; shared sides between
+  adjacent base cells remain open.
 - Each player has a cardinal `facing` (`north/east/south/west`). It follows the
   dominant axis of the last nonzero movement input; exact ties keep the current
   facing; zero input leaves it unchanged. Facing updates even if movement is
@@ -68,7 +69,8 @@ start, `pool.current = pool.max × STARTING_POOL_FRACTION` and `stash.current = 
 
 ### Economy
 
-For each resource, per tick (`dt = 1/30 s`):
+For each resource, on each server simulation step (`dt` is measured from the
+previous step; the server loop runs at 60 Hz by default):
 
 ```text
 stash.current = min(stash.current + gps * dt, stash.max)   // overflow lost
@@ -80,15 +82,15 @@ Base rates before phenomena:
 
 | Resource | GPS | CPS |
 | --- | --- | --- |
-| water | `GPS_PER_TILE.water × B` | `CPS_PER_PLAYER.water × P + CPS_PER_TILE.water × B` |
-| oxygen | `GPS_PER_TILE.oxygen × B` | `CPS_PER_PLAYER.oxygen × P + CPS_PER_TILE.oxygen × B` |
-| energy | `GPS_PER_TILE.energy × B` | `CPS_PER_PLAYER.energy × P + CPS_PER_TILE.energy × B` |
+| water | `GPS_PER_PLAYER.water × P + GPS_PER_TILE.water × B` | `CPS_PER_PLAYER.water × P + CPS_PER_TILE.water × B` |
+| oxygen | `GPS_PER_PLAYER.oxygen × P + GPS_PER_TILE.oxygen × B` | `CPS_PER_PLAYER.oxygen × P + CPS_PER_TILE.oxygen × B` |
+| energy | `GPS_PER_PLAYER.energy × P + GPS_PER_TILE.energy × B` | `CPS_PER_PLAYER.energy × P + CPS_PER_TILE.energy × B` |
 | food | `FOOD_GPS_PER_PLAYER × P` | `FOOD_CPS_PER_PLAYER × P` |
 
 The state exposes **effective** `gps`/`cps` after active phenomena. Tick order:
 movement/actions → win/loss check → phenomenon roll/instant → economy → loss
-check. Config MUST keep `cps > gps` for every supported team size and base size;
-this is the survival pressure.
+check. Config requires `cps >= gps` for every supported team size and base size.
+Current defaults make both rates equal, provided players collect before the stash fills.
 
 ### Build and collect
 
@@ -192,9 +194,9 @@ bot goal-seeking, and reduce N.
 
 | Risk | Mitigation |
 | --- | --- |
-| Economy is unwinnable/unfun | All constants config; bot-driven tuning; N=10; `cps > gps` validation |
+| Economy is unwinnable/unfun | All constants config; bot-driven tuning; N=10; `cps >= gps` validation |
 | Phenomena feel unfair | One at a time; fixed costs visible; roll timer resets; tune weights |
-| Base-only movement clamp bugs | Axis-separated clamp + unit tests |
+| Corridor wall traversal | Server-authoritative wall and corner-post clearance + unit tests |
 | State desync on build/phenomenon | Reliable control events + full state at start; no removal |
 | Client build UI targets wrong cell | Server validates; UI only offers the single front cell |
 | Scope creep (combat/units/removal) | Hard P2 cut line |
@@ -206,21 +208,24 @@ are **not balanced** for the jam yet.
 
 | Constant | Water | Oxygen | Energy | Food |
 | --- | --- | --- | --- | --- |
-| `POOL_PER_PLAYER` | 50 | 50 | 50 | 40 |
+| `POOL_PER_PLAYER` | 100 | 100 | 100 | 80 |
 | `STASH_BASE` | 10 | 10 | 10 | 10 |
 | `STASH_PER_TILE` | 1 | 1 | 1 | 1 |
 | `STASH_PER_PLAYER` | 5 | 5 | 5 | 5 |
-| `GPS_PER_TILE` | 0.04 | 0.04 | 0.03 | — |
-| `FOOD_GPS_PER_PLAYER` | — | — | — | 0.15 |
-| `CPS_PER_PLAYER` | 0.30 | 0.30 | 0.25 | 0.30 |
+| `GPS_PER_TILE` | 0.08 | 0.08 | 0.06 | — |
+| `GPS_PER_PLAYER` | 0.25 | 0.25 | 0.20 | 0.25 |
+| `CPS_PER_PLAYER` | 0.25 | 0.25 | 0.20 | 0.25 |
 | `CPS_PER_TILE` | 0.08 | 0.08 | 0.06 | — |
 | `BUILD_COST` | 5 | 5 | 5 | 0 |
 
-Other defaults: `STARTING_POOL_FRACTION=0.5`, `SOLAR_GPS_REDUCTION_PER_SECOND={strong:0.15, mild:0.05}`,
+Other defaults: `STARTING_POOL_FRACTION=0.8`,
+`SOLAR_GPS_REDUCTION_PER_SECOND={strong:0.15, mild:0.05}`,
 `WATER_LEAK_CPS_MULTIPLIER=1.5`, `OXYGEN_LOSS_CPS_MULTIPLIER=1.5`,
-`ROTTEN_FOOD_PER_PLAYER=5`, `FIX_COST_ENERGY={solar:{strong:30, mild:15}, water:10, oxygen:10}`,
-`PHENOMENON_FIRST_ROLL_SECONDS=120`, `PHENOMENON_ROLL_SECONDS=30`, `INVESTIGATION_COUNT=10`,
-`PLAYER_SPEED=4`, `TICK_RATE=30`, `FRAME_RATE=15`.
+`ROTTEN_FOOD_PER_PLAYER=5`,
+`FIX_COST_ENERGY={solar:{strong:30, mild:15}, water:10, oxygen:10}`,
+`PHENOMENON_FIRST_ROLL_SECONDS=120`, `PHENOMENON_ROLL_SECONDS=30`,
+uniform event weights, `INVESTIGATION_COUNT=10`, `PLAYER_SPEED=4`,
+`TICK_RATE=60`, `FRAME_RATE=60`.
 
 Phenomenon roll defaults:
 

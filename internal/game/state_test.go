@@ -306,7 +306,7 @@ func TestGenerateWorldRejectsInvalidInputs(t *testing.T) {
 		{name: "invalid pool fraction", team: 1, change: func(c *Config) { c.StartingPoolFraction = 1.1 }},
 		{name: "negative resource value", team: 1, change: func(c *Config) { c.Water.GPSPerTile = -1 }},
 		{name: "zero pool capacity", team: 1, change: func(c *Config) { c.Water.PoolPerPlayer = 0 }},
-		{name: "CPS not greater than GPS", team: 1, change: func(c *Config) {
+		{name: "GPS greater than CPS", team: 1, change: func(c *Config) {
 			c.Water.GPSPerTile = 0.1
 			c.Water.CPSPerPlayer = 0.001
 			c.Water.CPSPerTile = 0.001
@@ -330,7 +330,7 @@ func assertInitialResource(t *testing.T, name string, actual ResourceState, conf
 	baseCells := float64(baseSize * baseSize)
 	poolMax := config.PoolPerPlayer * float64(teamSize)
 	stashMax := config.StashBase + config.StashPerTile*baseCells + config.StashPerPlayer*float64(teamSize)
-	gps := config.GPSPerTile * baseCells
+	gps := config.GPSPerTile*baseCells + config.GPSPerPlayer*float64(teamSize)
 	cps := config.CPSPerPlayer*float64(teamSize) + config.CPSPerTile*baseCells
 	if food {
 		gps = config.GPSPerPlayer * float64(teamSize)

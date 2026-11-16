@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
 )
 
@@ -59,6 +60,10 @@ func (c *Client) handleRequest(envelope protocol.Envelope, request protocol.Requ
 		c.handleMatchStart(envelope.ID)
 	case *protocol.MatchInputRequest:
 		c.handleMatchInput(envelope.ID, request)
+	case *protocol.StashCollectRequest:
+		c.handleStashCollect(envelope.ID)
+	case *protocol.BaseBuildRequest:
+		c.handleBaseBuild(envelope.ID, request)
 	case *protocol.PhenomenonFixRequest:
 		c.handlePhenomenonFix(envelope.ID)
 	default:
@@ -109,6 +114,24 @@ func (c *Client) handleMatchInput(id string, request *protocol.MatchInputRequest
 	); err != nil {
 		c.sendProtocolError(id, err)
 	}
+}
+
+func (c *Client) handleStashCollect(id string) {
+	result, _, err := c.matches.Collect(c.id, time.Now().UnixMilli())
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeStashCollect, result)
+}
+
+func (c *Client) handleBaseBuild(id string, request *protocol.BaseBuildRequest) {
+	result, _, err := c.matches.Build(c.id, game.Cell{CellX: *request.CellX, CellY: *request.CellY}, time.Now().UnixMilli())
+	if err != nil {
+		c.sendProtocolError(id, err)
+		return
+	}
+	c.sendResponse(id, protocol.TypeBaseBuild, result)
 }
 
 // handlePhenomenonFix pays energy to clear the active phenomenon. The fixer

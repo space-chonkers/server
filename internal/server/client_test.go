@@ -181,8 +181,8 @@ func TestRequestsBeforeHelloAreRejected(t *testing.T) {
 	ping(t, conn, "ping-after")
 }
 
-func TestBaseBuildRemainsUnimplemented(t *testing.T) {
-	// B4 owns the build action handler.
+func TestBaseBuildWithoutMatchIsRejected(t *testing.T) {
+	// Build is wired (B4): outside a match the manager answers not_in_match.
 	s := testServer(t)
 	conn := dialWS(t, s)
 	readWelcome(t, conn)
@@ -193,7 +193,7 @@ func TestBaseBuildRemainsUnimplemented(t *testing.T) {
 		Type:    protocol.TypeBaseBuild,
 		Payload: mustRaw(t, protocol.BaseBuildRequest{CellX: intPtr(1), CellY: intPtr(2)}),
 	})
-	expectError(t, conn, "build-1", protocol.CodeInternal)
+	expectError(t, conn, "build-1", protocol.CodeNotInMatch)
 	ping(t, conn, "ping-after")
 }
 

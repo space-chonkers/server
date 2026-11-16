@@ -19,6 +19,27 @@ const phenomenonStartMs = 1000
 // rollInterval is PHENOMENON_ROLL_SECONDS expressed in 30 Hz ticks.
 const rollInterval = 900 * time.Second / 30
 
+func TestSecondsDurationAvoidsOverflowAndZeroForPositiveInputs(t *testing.T) {
+	const maxDuration = time.Duration(1<<63 - 1)
+	tests := []struct {
+		name    string
+		seconds float64
+		want    time.Duration
+	}{
+		{name: "zero", seconds: 0, want: 0},
+		{name: "sub-nanosecond", seconds: 1e-12, want: time.Nanosecond},
+		{name: "overflow", seconds: math.MaxFloat64, want: maxDuration},
+		{name: "not a number", seconds: math.NaN(), want: maxDuration},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := secondsDuration(test.seconds); got != test.want {
+				t.Fatalf("secondsDuration(%v) = %v, want %v", test.seconds, got, test.want)
+			}
+		})
+	}
+}
+
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
