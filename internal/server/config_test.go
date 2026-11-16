@@ -34,7 +34,7 @@ func TestDefaultConfigWelcome(t *testing.T) {
 	if welcome.ServerTimeMs <= 0 {
 		t.Fatalf("expected server time, got %d", welcome.ServerTimeMs)
 	}
-	if welcome.TickRate != 30 || welcome.FrameRate != 15 {
+	if welcome.TickRate != 60 || welcome.FrameRate != 60 {
 		t.Fatalf("unexpected rates tick=%v frame=%v", welcome.TickRate, welcome.FrameRate)
 	}
 	if welcome.Limits.MaxMessageBytes != 32768 ||
@@ -145,7 +145,7 @@ func TestConfigValidate(t *testing.T) {
 		{name: "shutdown zero", mutate: func(cfg *Config) { cfg.ShutdownTimeout = 0 }},
 		{name: "tick zero", mutate: func(cfg *Config) { cfg.TickRate = 0 }},
 		{name: "frame zero", mutate: func(cfg *Config) { cfg.FrameRate = 0 }},
-		{name: "frame over tick", mutate: func(cfg *Config) { cfg.FrameRate = 31 }},
+		{name: "frame over tick", mutate: func(cfg *Config) { cfg.FrameRate = 61 }},
 		{name: "players zero", mutate: func(cfg *Config) { cfg.MaxPlayersPerMatch = 0 }},
 		{name: "players high", mutate: func(cfg *Config) { cfg.MaxPlayersPerMatch = 5 }},
 		{name: "matches zero", mutate: func(cfg *Config) { cfg.MaxMatches = 0 }},

@@ -11,10 +11,10 @@ go run ./cmd/bot -players 1 -duration 5s
 go run ./cmd/bot -players 4 -duration 60s
 ```
 
-Against a non-default server:
+Against the Compose server published on host port 8081:
 
 ```sh
-go run ./cmd/bot -url ws://localhost:8080/ws -players 4 -duration 60s
+go run ./cmd/bot -url ws://localhost:8081/ws -players 4 -duration 60s
 ```
 
 Join an existing lobby instead of creating one:
@@ -46,9 +46,9 @@ the first bot starts the match once everyone has joined.
 - Applies `match.state`, `match.frame`, `match.build`, `match.phenomenon`, and
   `match.ended`; protocol errors keep the socket open.
 
-It does not reconnect, render, or guarantee a win in 60 seconds. Live
-collect/build/fix actions depend on the server action handlers being wired; the
-fake-server test exercises the bot side of that contract independently.
+It does not reconnect, render, or guarantee a win in 60 seconds. Bot behavior
+against live collect/build/fix handlers is covered by server integration tests;
+the fake-server test separately exercises the bot side of that contract.
 
 ## Test
 

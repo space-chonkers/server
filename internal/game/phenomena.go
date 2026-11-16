@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 )
 
 var (
@@ -139,12 +140,13 @@ func SolarChancePerRoll(config PhenomenonConfig) float64 {
 // effect values.
 func ValidatePhenomenonConfig(config Config) error {
 	phenomena := config.Phenomena
-	if phenomena.FirstRollDelaySeconds < 0 || !finite(phenomena.FirstRollDelaySeconds) {
-		return fmt.Errorf("first phenomenon roll delay must be finite and non-negative: %v",
+	if !validDurationSeconds(phenomena.FirstRollDelaySeconds, true) {
+		return fmt.Errorf("first phenomenon roll delay must be representable as a duration and non-negative: %v",
 			phenomena.FirstRollDelaySeconds)
 	}
-	if phenomena.RollSeconds <= 0 || !finite(phenomena.RollSeconds) {
-		return fmt.Errorf("phenomenon roll seconds must be finite and positive: %v", phenomena.RollSeconds)
+	if !validDurationSeconds(phenomena.RollSeconds, false) {
+		return fmt.Errorf("phenomenon roll seconds must be representable as a positive duration: %v",
+			phenomena.RollSeconds)
 	}
 	if phenomena.SecondsPerDay <= 0 || !finite(phenomena.SecondsPerDay) {
 		return fmt.Errorf("seconds per day must be finite and positive: %v", phenomena.SecondsPerDay)
@@ -218,6 +220,19 @@ func ValidatePhenomenonConfig(config Config) error {
 		return fmt.Errorf("solar chance per roll must be between 0 and 1: %v", chance)
 	}
 	return nil
+}
+
+func validDurationSeconds(seconds float64, allowZero bool) bool {
+	if !finite(seconds) || seconds < 0 {
+		return false
+	}
+	if seconds == 0 {
+		return allowZero
+	}
+
+	nanoseconds := seconds * float64(time.Second)
+	maxDuration := float64(time.Duration(1<<63 - 1))
+	return nanoseconds >= 1 && nanoseconds < maxDuration
 }
 
 // RollPhenomenon draws the outcome of one roll.

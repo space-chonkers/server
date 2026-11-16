@@ -105,9 +105,9 @@ func TestAdvancePlayerMovementClampsAndSlidesAlongBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.X != math.Nextafter(2, math.Inf(-1)) || math.Abs(got.Y-(0.5+1/math.Sqrt2)) > 1e-12 {
+	if got.X != 1.5+WallCollisionOffset || math.Abs(got.Y-(0.5+1/math.Sqrt2)) > 1e-12 {
 		t.Fatalf("diagonal slide = (%v,%v), want (%v,%v)",
-			got.X, got.Y, math.Nextafter(2, math.Inf(-1)), 0.5+1/math.Sqrt2)
+			got.X, got.Y, 1.5+WallCollisionOffset, 0.5+1/math.Sqrt2)
 	}
 	if got.VX != 0 || got.VY == 0 {
 		t.Fatalf("sliding velocity = (%v,%v), want X blocked and Y moving", got.VX, got.VY)
@@ -130,7 +130,7 @@ func TestAdvancePlayerMovementTriesXAxisBeforeYAxis(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantX := 0.5 + 1/math.Sqrt2
-	wantY := math.Nextafter(1, math.Inf(-1))
+	wantY := 0.5 + WallCollisionOffset
 	if math.Abs(got.X-wantX) > 1e-12 || got.Y != wantY {
 		t.Fatalf("diagonal movement = (%v,%v), want (%v,%v)", got.X, got.Y, wantX, wantY)
 	}
@@ -147,7 +147,7 @@ func TestBlockedMovementStillUpdatesFacing(t *testing.T) {
 	if got.Facing != FacingEast {
 		t.Fatalf("facing after blocked push = %q, want east", got.Facing)
 	}
-	if got.X != math.Nextafter(1, math.Inf(-1)) || got.VX != 0 {
+	if got.X != 0.5+WallCollisionOffset || got.VX != 0 {
 		t.Fatalf("blocked position/velocity = (%v,%v), want clamped and stopped", got.X, got.VX)
 	}
 }
@@ -163,8 +163,62 @@ func TestAdvancePlayerMovementDoesNotCrossDisconnectedCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.X != math.Nextafter(1, math.Inf(-1)) {
-		t.Fatalf("X = %v, want clamp at the first void boundary", got.X)
+	if got.X != 0.5+WallCollisionOffset {
+		t.Fatalf("X = %v, want clamp before the closed wall", got.X)
+	}
+}
+
+func TestAdvancePlayerMovementStopsAtClosedWallInEveryDirection(t *testing.T) {
+	base := []Construction{{ID: "only", Kind: ConstructionBaseTile, CellX: 5, CellY: 5}}
+	tests := []struct {
+		name string
+		move MovementInput
+		want PlayerMovementState
+	}{
+		{name: "east", move: MovementInput{X: 1}, want: PlayerMovementState{X: 5.5 + WallCollisionOffset, Y: 5.5}},
+		{name: "west", move: MovementInput{X: -1}, want: PlayerMovementState{X: 5.5 - WallCollisionOffset, Y: 5.5}},
+		{name: "south", move: MovementInput{Y: 1}, want: PlayerMovementState{X: 5.5, Y: 5.5 + WallCollisionOffset}},
+		{name: "north", move: MovementInput{Y: -1}, want: PlayerMovementState{X: 5.5, Y: 5.5 - WallCollisionOffset}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := AdvancePlayerMovement(PlayerMovementState{
+				X: 5.5, Y: 5.5, Facing: FacingNorth,
+			}, tt.move, base, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.X != tt.want.X || got.Y != tt.want.Y {
+				t.Fatalf("position = (%v,%v), want (%v,%v)", got.X, got.Y, tt.want.X, tt.want.Y)
+			}
+		})
+	}
+}
+
+func TestAdvancePlayerMovementCanCrossOpenSideAndBlocksCornerPost(t *testing.T) {
+	base := []Construction{
+		{ID: "start", Kind: ConstructionBaseTile, CellX: 0, CellY: 0},
+		{ID: "east", Kind: ConstructionBaseTile, CellX: 1, CellY: 0},
+	}
+	got, err := AdvancePlayerMovement(PlayerMovementState{
+		X: 0.5, Y: 0.5, Facing: FacingEast,
+	}, MovementInput{X: 1}, base, 0.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.X != 1.5 {
+		t.Fatalf("position after open side = %v, want 1.5", got.X)
+	}
+
+	corner, err := AdvancePlayerMovement(PlayerMovementState{
+		X: 0.5, Y: 0.5, Facing: FacingNorth,
+	}, MovementInput{X: 1, Y: 1}, squareBase(0, 0, 1), 0.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if corner.X != 0.5+WallCollisionOffset || corner.Y != 0.5+WallCollisionOffset {
+		t.Fatalf("corner movement = (%v,%v), want both axes clamped before the post", corner.X, corner.Y)
 	}
 }
 

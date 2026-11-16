@@ -2,6 +2,7 @@ package match
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/space-chonkers/server/internal/game"
@@ -58,6 +59,7 @@ func (m *Match) step(now time.Time, config game.Config) error {
 		m.mu.Unlock()
 		return nil
 	}
+	m.tick++
 	rollInterval := rollDuration(config)
 	if m.lastStepAt.IsZero() {
 		m.lastStepAt = now
@@ -243,5 +245,20 @@ func rollDuration(config game.Config) time.Duration {
 }
 
 func secondsDuration(seconds float64) time.Duration {
-	return time.Duration(seconds * float64(time.Second))
+	const maxDuration = time.Duration(1<<63 - 1)
+	if seconds == 0 {
+		return 0
+	}
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return maxDuration
+	}
+
+	nanoseconds := seconds * float64(time.Second)
+	if nanoseconds < 1 {
+		return time.Nanosecond
+	}
+	if nanoseconds >= float64(maxDuration) {
+		return maxDuration
+	}
+	return time.Duration(nanoseconds)
 }

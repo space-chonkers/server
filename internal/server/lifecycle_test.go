@@ -32,6 +32,21 @@ func testServerWorld(teamSize int) game.World {
 				Stash: game.ResourceStash{Current: 1, Max: 29, GPS: 0.36},
 				CPS:   1.32,
 			},
+			Oxygen: game.ResourceState{
+				Pool:  game.ResourcePool{Current: 50, Max: 100},
+				Stash: game.ResourceStash{Current: 1, Max: 29, GPS: 0.36},
+				CPS:   1.32,
+			},
+			Energy: game.ResourceState{
+				Pool:  game.ResourcePool{Current: 50, Max: 100},
+				Stash: game.ResourceStash{Current: 1, Max: 29, GPS: 0.27},
+				CPS:   1.04,
+			},
+			Food: game.ResourceState{
+				Pool:  game.ResourcePool{Current: 40, Max: 80},
+				Stash: game.ResourceStash{Current: 1, Max: 29, GPS: 0.60},
+				CPS:   1.20,
+			},
 		},
 	}
 }

@@ -22,12 +22,15 @@ func (m *Manager) ApplyPlayerInput(
 	if match == nil {
 		return nil, false, protocol.Errorf(protocol.CodeNotInMatch, "player %s is not in a match", playerID)
 	}
-	applied, err := match.applyInput(playerID, request, speedPerSecond, elapsedSeconds)
+	applied, err := match.applyInput(playerID, request, speedPerSecond, elapsedSeconds, m.opts.Now())
 	return match, applied, err
 }
 
 func (m *Match) initializeMovementPlayersLocked() error {
 	if m.players != nil {
+		if len(m.lastInputAt) != len(m.players) {
+			m.lastInputAt = make([]time.Time, len(m.players))
+		}
 		return nil
 	}
 
@@ -51,6 +54,7 @@ func (m *Match) initializeMovementPlayersLocked() error {
 		}
 	}
 	m.players = players
+	m.lastInputAt = make([]time.Time, len(players))
 	return nil
 }
 

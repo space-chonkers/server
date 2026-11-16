@@ -57,9 +57,9 @@ func ValidateEconomyConfig(config Config) error {
 						entry.key, teamSize, baseCells,
 					)
 				}
-				if entry.rates.CPS <= entry.rates.GPS {
+				if entry.rates.CPS < entry.rates.GPS {
 					return fmt.Errorf(
-						"%s CPS must exceed GPS for team size %d and base cells %d (CPS %.6g, GPS %.6g)",
+						"%s CPS must be at least GPS for team size %d and base cells %d (CPS %.6g, GPS %.6g)",
 						entry.key, teamSize, baseCells, entry.rates.CPS, entry.rates.GPS,
 					)
 				}
@@ -97,7 +97,7 @@ func deriveEconomyRates(config Config, teamSize, baseCellCount int) EconomyRates
 }
 
 func deriveResourceRates(config ResourceConfig, teamSize, baseCellCount int, food bool) ResourceRates {
-	gps := config.GPSPerTile * float64(baseCellCount)
+	gps := config.GPSPerTile*float64(baseCellCount) + config.GPSPerPlayer*float64(teamSize)
 	cps := config.CPSPerPlayer*float64(teamSize) + config.CPSPerTile*float64(baseCellCount)
 	if food {
 		gps = config.GPSPerPlayer * float64(teamSize)

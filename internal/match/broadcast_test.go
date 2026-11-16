@@ -67,8 +67,8 @@ func TestStateUsesLivePlayerMovement(t *testing.T) {
 	}
 
 	state := match.State(1)
-	if state.Tick != seq {
-		t.Fatalf("state tick = %d, want %d", state.Tick, seq)
+	if state.Tick != 0 {
+		t.Fatalf("state tick = %d before a simulation step, want 0", state.Tick)
 	}
 	moved := state.Players[0]
 	if moved.LastInputSeq != seq || moved.X <= 5.5 || moved.Facing != protocol.FacingEast {
@@ -87,6 +87,40 @@ func TestStateUsesLivePlayerMovement(t *testing.T) {
 	}
 	if after.Players[0].X != moved.X || after.Players[0].Y != moved.Y || after.Players[0].LastInputSeq != seq {
 		t.Fatalf("leave reset live movement: %+v, want %+v", after.Players[0], moved)
+	}
+}
+
+func TestSimulationTickAdvancesWithoutPlayerInput(t *testing.T) {
+	manager := newTestManager(t, nil)
+	sink := &fakeSink{}
+	match := mustCreate(t, manager, "p_1", sink)
+	mustStart(t, manager, "p_1")
+
+	for wantTick := int64(1); wantTick <= 3; wantTick++ {
+		if err := manager.Step(); err != nil {
+			t.Fatalf("simulation step %d: %v", wantTick, err)
+		}
+		if got := match.State(0).Tick; got != wantTick {
+			t.Fatalf("simulation tick = %d, want %d without input", got, wantTick)
+		}
+	}
+}
+
+func TestBroadcastFrameStopsAfterMatchEnds(t *testing.T) {
+	manager := newTestManager(t, nil)
+	sink := &fakeSink{}
+	match := mustCreate(t, manager, "p_1", sink)
+	mustStart(t, manager, "p_1")
+
+	match.mu.Lock()
+	match.ended = &protocol.MatchEnded{MatchID: match.id, Outcome: protocol.OutcomeLoss}
+	match.mu.Unlock()
+	before := sink.count()
+	if err := match.BroadcastFrame(); err != nil {
+		t.Fatalf("broadcast ended match frame: %v", err)
+	}
+	if got := sink.count(); got != before {
+		t.Fatalf("ended match published %d messages, want none", got-before)
 	}
 }
 

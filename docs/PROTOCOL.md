@@ -39,7 +39,7 @@ cells; lose when any resource pool reaches zero.
 | --- | --- | --- |
 | `welcome` | First frame | Player id, version, limits, rules |
 | `match.state` | Join response, start, phase change | Full lobby/map state |
-| `match.frame` | 15 Hz while playing | Players, resources, phenomenon, host |
+| `match.frame` | 60 Hz by default while playing | Players, resources, phenomenon, host |
 | `match.build` | Another player builds | Reliable construction delta |
 | `match.phenomenon` | Event starts/resolves/is instant | Reliable phenomenon transition |
 | `match.ended` | Win/loss/abandon | Shared outcome + stats |
@@ -88,12 +88,14 @@ Close codes: `1000` normal, `1001` shutdown, `1003` binary frame, `1008` policy
 - Base = union of cells with `base_tile` or `stash`. Start is a random 3×3 base
   with 8 `base_tile` and a unique `stash` at the center; `baseCellCount = 9`.
 - Players spawn at N/E/S/W edge cells by slot, facing radially outward, move
-  continuously, stay inside the base, may overlap, and ignore other players and
-  constructions for collision.
+  continuously, stay inside the base, and may overlap. Closed corridor walls and
+  corner posts block movement; the player stops 0.12 grid units from the tile
+  center on a blocked side. Shared sides between adjacent base cells stay open.
+  Players ignore other players and the stash cargo for collision.
 - Each player has a cardinal `facing`: `north|east|south|west`. It is derived
   from the last nonzero `move`: use the axis with the larger absolute component;
   exact ties keep the current facing; zero/omitted input leaves it unchanged.
-  Facing updates even when movement is blocked by the base edge. There is no
+  Facing updates even when movement is blocked by a wall. There is no
   separate facing input. Facing controls build direction and visuals only.
 - Build: stand on a base cell; the target must be the **single cell directly in
   front** of the player (`current cell + facing`), in bounds, empty, and
@@ -119,7 +121,7 @@ Four resources: `water`, `oxygen`, `energy`, `food`. Each resource state:
   frozen at `match.start`; leaving does not change caps or upkeep).
 
 ```text
-water/oxygen/energy GPS = GPS_PER_TILE[r] * B
+water/oxygen/energy GPS = GPS_PER_PLAYER[r] * P + GPS_PER_TILE[r] * B
 food GPS               = FOOD_GPS_PER_PLAYER * P
 water/oxygen/energy CPS = CPS_PER_PLAYER[r] * P + CPS_PER_TILE[r] * B
 food CPS               = FOOD_CPS_PER_PLAYER * P
@@ -128,11 +130,11 @@ per tick: stash = min(stash + gps*dt, stash.max)   // overflow lost
           pool  = max(pool - cps*dt, 0)
 ```
 
-- Tick order: movement → collect/build/fix actions → win/loss check →
-  phenomenon roll/instant → recompute effective rates → economy → loss check.
-  A build that completes the win ends at the first check. A fix in the action
-  phase prevents that tick's effect.
-- Config MUST keep `cps > gps`; that is the survival pressure.
+- Movement and actions are processed as requests arrive. The frame loop advances
+  the economy and checks for loss; a build also checks for win or loss. Phenomenon
+  rolls and fixes are not implemented yet.
+- Config requires `cps >= gps`. The current defaults make the rates equal;
+  collecting before the stash fills is still necessary to replenish the pool.
 - Build costs `buildCost.water`, `.oxygen`, `.energy` (no food), paid once.
   It adds one base cell, raises water/O2/energy GPS+CPS per tile, and raises all
   stash caps through `B`; it does not change pool caps or food rates.
@@ -241,8 +243,8 @@ required field.
     "playerId": "p_1a2b3c4d",
     "protocolVersion": 1,
     "serverTimeMs": 1763222400000,
-    "tickRate": 30,
-    "frameRate": 15,
+    "tickRate": 60,
+    "frameRate": 60,
     "limits": { "maxMessageBytes": 32768, "maxPlayersPerMatch": 4, "maxNicknameLength": 16, "maxMatches": 64 },
     "rules": {
       "grid": { "width": 50, "height": 50 },
@@ -289,7 +291,7 @@ does not decrease when a player leaves. `phase` is
 and `teamSize` is the current lobby player count. Lobby players use `x/y/vx/vy`
 0, `facing:"north"`, and `lastInputSeq:-1` until the match starts.
 
-### `match.frame` (lossy, 15 Hz)
+### `match.frame` (lossy, 60 Hz by default)
 
 ```text
 {

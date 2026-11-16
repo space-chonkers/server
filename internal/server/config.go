@@ -37,8 +37,8 @@ func DefaultConfig() Config {
 		AllowedOrigins:     []string{"*"},
 		MaxMessageBytes:    32 * 1024,
 		ShutdownTimeout:    10 * time.Second,
-		TickRate:           30,
-		FrameRate:          15,
+		TickRate:           60,
+		FrameRate:          60,
 		MaxPlayersPerMatch: 4,
 		MaxMatches:         64,
 		Rules: protocol.Rules{

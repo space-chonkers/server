@@ -67,24 +67,25 @@ compose.yaml                local server container
 docker compose up --build
 ```
 
-- Server: <http://localhost:8080>
-- WebSocket: `ws://localhost:8080/ws`
-- Health: <http://localhost:8080/healthz>
-- Readiness: <http://localhost:8080/readyz>
+- Server: <http://localhost:8081>
+- WebSocket: `ws://localhost:8081/ws`
+- Health: <http://localhost:8081/healthz>
+- Readiness: <http://localhost:8081/readyz>
 - Debug matches (P1, disabled by default): `/debug/matches`
 
-Stop it with `docker compose down`. The server handles `SIGTERM`, closes
+Docker Compose publishes host port `8081` to the server's container port `8080`.
+When running the binary directly, the default address remains `:8080`. Stop the
+container with `docker compose down`. The server handles `SIGTERM`, closes
 connected sockets with `1001`, and exits within `SHUTDOWN_TIMEOUT_SECONDS`.
 
 The reference bot is a separate Go command:
 
 ```sh
-go run ./cmd/bot -players 4 -duration 60s
+go run ./cmd/bot -url ws://localhost:8081/ws -players 4 -duration 60s
 ```
 
 See [cmd/bot/README.md](cmd/bot/README.md) for flags and limitations. The client
-container is not wired in this repo yet; connect a client to the WebSocket URL
-when ready.
+lives in a separate repository; connect it to the WebSocket URL above.
 
 ## WebSocket protocol
 
@@ -112,7 +113,8 @@ time, limits, and gameplay rules. The client then identifies once:
 | `ping` | Any phase; answered with `pong`. |
 | `player.hello` | Once per connection; answered with `player.hello`. |
 | `match.join`, `match.leave`, `match.start`, `match.input` | Wired through the match lifecycle and movement handlers. |
-| `stash.collect`, `base.build`, `phenomenon.fix` | Validated by the contract; action handlers are pending the B4/B5 convergence wiring. |
+| `stash.collect`, `base.build` | Wired to the authoritative match actions. |
+| `phenomenon.fix` | Pays the configured energy cost to resolve an active phenomenon. |
 
 Unknown types return `error: "unsupported_type"` and keep the socket open.
 Errors use a stable `error` code plus a human-readable `payload.message`.
@@ -121,7 +123,7 @@ Binary frames close with `1003`; a protocol version mismatch closes with `1008`.
 Minimal client wiring:
 
 ```ts
-const socket = new WebSocket('ws://localhost:8080/ws')
+const socket = new WebSocket('ws://localhost:8081/ws')
 
 socket.addEventListener('message', (event) => {
   const message = JSON.parse(event.data)

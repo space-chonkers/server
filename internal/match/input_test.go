@@ -1,8 +1,10 @@
 package match
 
 import (
+	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/space-chonkers/server/internal/game"
 	"github.com/space-chonkers/server/internal/protocol"
@@ -14,6 +16,44 @@ func movementRequest(seq int64, x, y *float64) *protocol.MatchInputRequest {
 		request.Move = &protocol.InputMove{X: x, Y: y}
 	}
 	return request
+}
+
+func TestMatchMovementSpeedDoesNotScaleWithInputFrequency(t *testing.T) {
+	start := time.Unix(100, 0)
+	base := make([]game.Construction, 0, 50)
+	for x := 0; x < 50; x++ {
+		base = append(base, game.Construction{
+			ID: fmt.Sprintf("base-%d", x), Kind: game.ConstructionBaseTile, CellX: x, CellY: 10,
+		})
+	}
+	match := &Match{
+		id:      "rate-test",
+		phase:   protocol.PhasePlaying,
+		members: []*Member{{PlayerID: "p1", Slot: 0}},
+		world:   game.World{Constructions: base},
+		players: []protocol.PlayerState{{
+			ID: "p1", Slot: 0, Facing: protocol.FacingEast, X: 10.5, Y: 10.5, LastInputSeq: -1,
+		}},
+		lastInputAt: []time.Time{start},
+	}
+
+	for i := int64(1); i <= 120; i++ {
+		now := start.Add(time.Duration(i) * time.Second / 120)
+		x, y := 1.0, 0.0
+		if applied, err := match.applyInput(
+			"p1", movementRequest(i-1, &x, &y), game.PlayerSpeed, 1.0/60, now,
+		); err != nil || !applied {
+			t.Fatalf("input %d = %v, %v", i, applied, err)
+		}
+	}
+
+	player := match.players[0]
+	if math.Abs(player.X-14.5) > 1e-6 {
+		t.Fatalf("120 Hz input moved player to x=%v, want about 14.5 (4 units/s)", player.X)
+	}
+	if match.tick != 0 {
+		t.Fatalf("input packets advanced simulation tick to %d, want 0", match.tick)
+	}
 }
 
 func inputTestBase() []game.Construction {
@@ -41,7 +81,7 @@ func TestApplyPlayerInputUpdatesStateAndSequence(t *testing.T) {
 		t.Fatal("new input was not applied")
 	}
 	if math.Abs(player.X-(11.5+0.25/math.Sqrt(1.25)*2)) > 1e-12 ||
-		math.Abs(player.Y-(11.5-0.25/math.Sqrt(1.25)*4)) > 1e-12 {
+		math.Abs(player.Y-(11.5-game.WallCollisionOffset)) > 1e-12 {
 		t.Fatalf("position = (%v,%v), unexpected result", player.X, player.Y)
 	}
 	if player.Facing != protocol.FacingNorth {

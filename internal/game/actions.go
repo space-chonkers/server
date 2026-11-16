@@ -53,6 +53,8 @@ func (e *InsufficientResourcesError) Error() string {
 
 func (e *InsufficientResourcesError) Unwrap() error { return ErrInsufficientResource }
 
+const stashCollectMaxDistance = 0.70
+
 // CollectAtStash transfers each stashed resource into its pool. The input
 // world is unchanged when collection fails.
 func CollectAtStash(
@@ -62,8 +64,16 @@ func CollectAtStash(
 	playerCell := Cell{CellX: int(math.Floor(player.X)), CellY: int(math.Floor(player.Y))}
 	atStash := false
 	for _, construction := range world.Constructions {
-		if construction.Kind == ConstructionStash &&
-			construction.CellX == playerCell.CellX && construction.CellY == playerCell.CellY {
+		if construction.Kind != ConstructionStash {
+			continue
+		}
+		if construction.CellX == playerCell.CellX && construction.CellY == playerCell.CellY {
+			atStash = true
+			break
+		}
+		dx := player.X - (float64(construction.CellX) + 0.5)
+		dy := player.Y - (float64(construction.CellY) + 0.5)
+		if dx*dx+dy*dy <= stashCollectMaxDistance*stashCollectMaxDistance {
 			atStash = true
 			break
 		}

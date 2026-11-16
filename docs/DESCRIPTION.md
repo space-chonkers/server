@@ -216,7 +216,7 @@ difference is configuration.
 
 ```sh
 # local
-docker compose up --build            # server on http://localhost:8080
+docker compose up --build            # server on http://localhost:8081
 docker compose down
 
 # production-shaped
@@ -227,7 +227,7 @@ VERSION=1.0.0 ALLOWED_ORIGINS=https://game.example.com docker compose up -d
 - Image tag: `space-chonkers/server:${VERSION:-dev}`.
 - Host port override: `SERVER_PORT=8090 docker compose up --build`.
 - Health: `GET /healthz`; readiness: `GET /readyz`.
-- WebSocket: `ws://localhost:8080/ws` locally, `wss://<host>/ws` in production.
+- WebSocket: `ws://localhost:8081/ws` with Compose, `ws://localhost:8080/ws` for a local binary, `wss://<host>/ws` in production.
 
 When the bus, Redis, and matchmaking land, they become additional Compose
 services in the same file (`rabbitmq`, `redis`, `matchmaker`). The server stays
